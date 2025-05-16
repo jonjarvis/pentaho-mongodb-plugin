@@ -13,9 +13,14 @@
 
 package org.pentaho.di.trans.steps.mongodbinput;
 
-import com.mongodb.BasicDBList;
-import com.mongodb.BasicDBObject;
-import com.mongodb.DBObject;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.bson.BsonDocument;
+import org.bson.Document;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.row.RowDataUtil;
 import org.pentaho.di.core.row.RowMetaInterface;
@@ -23,15 +28,16 @@ import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.trans.step.BaseStepData;
 import org.pentaho.di.trans.step.StepDataInterface;
-import org.pentaho.mongo.wrapper.MongoClientWrapper;
-import org.pentaho.mongo.wrapper.collection.MongoCollectionWrapper;
-import org.pentaho.mongo.wrapper.cursor.MongoCursorWrapper;
+import org.pentaho.di.trans.steps.mongodb.discover.MongoDbInputDiscoverFieldsHolder;
 import org.pentaho.mongo.wrapper.field.MongoArrayExpansion;
 import org.pentaho.mongo.wrapper.field.MongoField;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
+import com.mongodb.BasicDBList;
+import com.mongodb.BasicDBObject;
+import com.mongodb.DBObject;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
 
 /**
  * @author Matt
@@ -40,33 +46,29 @@ import java.util.List;
  */
 public class MongoDbInputData extends BaseStepData implements StepDataInterface {
 
-  public static final int MONGO_DEFAULT_PORT = 27017;
+  
   public RowMetaInterface outputRowMeta;
-  public MongoClientWrapper clientWrapper;
-  public MongoCollectionWrapper collection;
 
-  /**
-   * cursor for a standard query
-   */
-  public MongoCursorWrapper cursor;
-
-  /**
-   * results of an aggregation pipeline
-   */
-  Iterator<DBObject> m_pipelineResult;
+  protected MongoClient client;
+  protected MongoCollection<Document> collection;
+  protected MongoCursor<Document> cursor;
 
   private List<MongoField> m_userFields;
   private MongoArrayExpansion m_expansionHandler;
+  
+  /*
   private static MongoDbInputDiscoverFieldsHolder mongoDbInputDiscoverFieldsHolder =
       MongoDbInputDiscoverFieldsHolder.getInstance();
 
   public static MongoDbInputDiscoverFieldsHolder getMongoDbInputDiscoverFieldsHolder() {
+    
     return mongoDbInputDiscoverFieldsHolder;
   }
 
   protected static void setMongoDbInputDiscoverFieldsHolder( MongoDbInputDiscoverFieldsHolder holder ) {
     mongoDbInputDiscoverFieldsHolder = holder;
   }
+  */
 
   protected static MongoArrayExpansion checkFieldPaths( List<MongoField> normalFields, RowMetaInterface outputRowMeta )
     throws KettleException {
@@ -147,10 +149,7 @@ public class MongoDbInputData extends BaseStepData implements StepDataInterface 
     return null;
   }
 
-  public MongoDbInputData() {
-    super();
-  }
-
+  
   /**
    * Initialize all the paths by locating the index for their field name in the outgoing row structure.
    *
@@ -158,7 +157,6 @@ public class MongoDbInputData extends BaseStepData implements StepDataInterface 
    */
   public void init() throws KettleException {
     if ( m_userFields != null ) {
-
       // set up array expansion/unwinding (if necessary)
       m_expansionHandler = checkFieldPaths( m_userFields, outputRowMeta );
 
@@ -182,13 +180,13 @@ public class MongoDbInputData extends BaseStepData implements StepDataInterface 
    * @return populated Kettle row(s)
    * @throws KettleException if a problem occurs
    */
-  public Object[][] mongoDocumentToKettle( DBObject mongoObj, VariableSpace space ) throws KettleException {
+  public Object[][] mongoDocumentToKettle( Object mongoObj, VariableSpace space ) throws KettleException {
 
     Object[][] result = null;
 
     if ( m_expansionHandler != null ) {
       m_expansionHandler.reset( space );
-
+      
       if ( mongoObj instanceof BasicDBObject ) {
         result = m_expansionHandler.convertToKettleValue( (BasicDBObject) mongoObj, space );
       } else {
@@ -293,16 +291,7 @@ public class MongoDbInputData extends BaseStepData implements StepDataInterface 
    * @return the list a String in comma-separated form
    */
   public static String indexedValsList( List<String> indexedVals ) {
-    StringBuffer temp = new StringBuffer();
-
-    for ( int i = 0; i < indexedVals.size(); i++ ) {
-      temp.append( indexedVals.get( i ) );
-      if ( i < indexedVals.size() - 1 ) {
-        temp.append( "," ); //$NON-NLS-1$
-      }
-    }
-
-    return temp.toString();
+    return indexedVals.stream().collect( Collectors.joining( "," ) );
   }
 
   /**
@@ -312,13 +301,6 @@ public class MongoDbInputData extends BaseStepData implements StepDataInterface 
    * @return a List containing the values
    */
   public static List<String> indexedValsList( String indexedVals ) {
-
-    String[] parts = indexedVals.split( "," ); //$NON-NLS-1$
-    List<String> list = new ArrayList<String>();
-    for ( String s : parts ) {
-      list.add( s.trim() );
-    }
-
-    return list;
+    return Arrays.stream( indexedVals.split( "," ) ).map( String::trim ).collect( Collectors.toList() );
   }
 }

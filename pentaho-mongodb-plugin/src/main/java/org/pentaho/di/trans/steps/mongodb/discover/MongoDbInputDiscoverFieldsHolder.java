@@ -11,9 +11,7 @@
  ******************************************************************************/
 
 
-package org.pentaho.di.trans.steps.mongodbinput;
-
-import org.pentaho.mongo.wrapper.field.MongodbInputDiscoverFieldsImpl;
+package org.pentaho.di.trans.steps.mongodb.discover;
 
 import java.util.ArrayList;
 import java.util.Collections;

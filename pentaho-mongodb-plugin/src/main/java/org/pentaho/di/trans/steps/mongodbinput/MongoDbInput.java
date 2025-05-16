@@ -13,15 +13,17 @@
 
 package org.pentaho.di.trans.steps.mongodbinput;
 
-import com.mongodb.Cursor;
-import com.mongodb.DBObject;
-import com.mongodb.ServerAddress;
-import com.mongodb.util.JSON;
-import org.pentaho.di.core.Const;
+import java.util.stream.Collectors;
+
+import org.bson.BsonArray;
+import org.bson.BsonDocument;
+import org.bson.BsonValue;
+import org.bson.Document;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.row.RowDataUtil;
 import org.pentaho.di.core.row.RowMeta;
 import org.pentaho.di.core.row.RowMetaInterface;
+import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.trans.Trans;
 import org.pentaho.di.trans.TransMeta;
@@ -30,17 +32,13 @@ import org.pentaho.di.trans.step.StepDataInterface;
 import org.pentaho.di.trans.step.StepInterface;
 import org.pentaho.di.trans.step.StepMeta;
 import org.pentaho.di.trans.step.StepMetaInterface;
-import org.pentaho.mongo.MongoDbException;
-import org.pentaho.mongo.wrapper.MongoWrapperUtil;
-import org.pentaho.mongo.wrapper.field.MongodbInputDiscoverFieldsImpl;
 
-import java.util.List;
+import com.mongodb.BasicDBObject;
+import com.mongodb.ServerAddress;
+import com.mongodb.client.FindIterable;
 
 public class MongoDbInput extends BaseStep implements StepInterface {
-  private static final Class<?> PKG = MongoDbInputMeta.class; // for i18n purposes,
-  // needed by
-  // Translator2!!
-  // $NON-NLS-1$
+  private static final Class<?> PKG = MongoDbInputMeta.class; 
 
   private MongoDbInputMeta meta;
   private MongoDbInputData data;
@@ -53,60 +51,57 @@ public class MongoDbInput extends BaseStep implements StepInterface {
     super( stepMeta, stepDataInterface, copyNr, transMeta, trans );
   }
 
-  @Override public boolean processRow( StepMetaInterface smi, StepDataInterface sdi ) throws KettleException {
-    try {
-      if ( meta.getExecuteForEachIncomingRow() && m_currentInputRowDrivingQuery == null ) {
-        m_currentInputRowDrivingQuery = getRow();
+  @Override 
+  public boolean processRow( StepMetaInterface smi, StepDataInterface sdi ) throws KettleException {
 
-        if ( m_currentInputRowDrivingQuery == null ) {
-          // no more input, no more queries to make
-          setOutputDone();
-          return false;
-        }
+    if ( meta.getExecuteForEachIncomingRow() && m_currentInputRowDrivingQuery == null ) {
+      m_currentInputRowDrivingQuery = getRow();
 
-        if ( !first ) {
-          initQuery();
-        } else if ( data.outputRowMeta == null ) {
-          data.outputRowMeta = getInputRowMeta().clone();
-        }
+      if ( m_currentInputRowDrivingQuery == null ) {
+        // no more input, no more queries to make
+        setOutputDone();
+        return false;
       }
 
-      if ( first ) {
-        if ( data.outputRowMeta == null ) {
-          data.outputRowMeta = new RowMeta();
-        }
-
-        meta.getFields( data.outputRowMeta, getStepname(), null, null, MongoDbInput.this );
-
+      if ( !first ) {
         initQuery();
-        first = false;
+      }
+    }
 
-        data.init();
+    if ( first ) {
+      first = false;
+      
+      if ( m_currentInputRowDrivingQuery == null ) {
+        data.outputRowMeta = new RowMeta();
+      } else {
+        data.outputRowMeta = getInputRowMeta().clone();
       }
 
-      boolean
-          hasNext =
-          ( ( meta.getQueryIsPipeline() ? data.m_pipelineResult.hasNext() : data.cursor.hasNext() ) && !isStopped() );
-      if ( hasNext ) {
-        DBObject nextDoc = null;
+      meta.getFields( data.outputRowMeta, getStepname(), null, null, this );
+      data.init();
+      
+      initQuery();
+      
+    }
+    
+    
+    try {
+
+      if ( data.cursor.hasNext() && !isStopped() ) {
+        Document nextDoc = data.cursor.next();
         Object[] row = null;
-        if ( meta.getQueryIsPipeline() ) {
-          nextDoc = data.m_pipelineResult.next();
-        } else {
-          nextDoc = data.cursor.next();
-        }
 
         if ( !meta.getQueryIsPipeline() && !m_serverDetermined ) {
           ServerAddress s = data.cursor.getServerAddress();
           if ( s != null ) {
             m_serverDetermined = true;
-            logBasic(
-                BaseMessages.getString( PKG, "MongoDbInput.Message.QueryPulledDataFrom", s.toString() ) ); //$NON-NLS-1$
+            logBasic( BaseMessages.getString( PKG, "MongoDbInput.Message.QueryPulledDataFrom", s.toString() ) ); 
           }
         }
 
         if ( meta.getOutputJson() || meta.getMongoFields() == null || meta.getMongoFields().isEmpty() ) {
-          String json = JSON.serialize( nextDoc );
+         
+          String json = nextDoc.toJson();
           row = RowDataUtil.allocateRowData( data.outputRowMeta.size() );
 
           if ( meta.getExecuteForEachIncomingRow() && m_currentInputRowDrivingQuery != null ) {
@@ -120,18 +115,19 @@ public class MongoDbInput extends BaseStep implements StepInterface {
           }
           putRow( data.outputRowMeta, row );
         } else {
-          Object[][] outputRows = data.mongoDocumentToKettle( nextDoc, MongoDbInput.this );
+          Object[][] outputRows = data.mongoDocumentToKettle( new BasicDBObject( nextDoc ) , this );
 
           // there may be more than one row if the paths contain an array
           // unwind
+
           for ( Object[] outputRow : outputRows ) {
             // Add all the incoming column values if they are not null
             if ( meta.getExecuteForEachIncomingRow() && m_currentInputRowDrivingQuery != null ) {
               appendTheIncomingRowsAtStart( outputRow, getInputRowMeta() );
             }
-
             putRow( data.outputRowMeta, outputRow );
           }
+
         }
       } else {
         if ( !meta.getExecuteForEachIncomingRow() ) {
@@ -161,7 +157,7 @@ public class MongoDbInput extends BaseStep implements StepInterface {
     }
   }
 
-  protected void initQuery() throws KettleException, MongoDbException {
+  protected void initQuery() throws KettleException {
 
     // close any previous cursor
     if ( data.cursor != null ) {
@@ -176,127 +172,110 @@ public class MongoDbInput extends BaseStep implements StepInterface {
 
     String query = environmentSubstitute( meta.getJsonQuery() );
     String fields = environmentSubstitute( meta.getFieldsName() );
-    if ( Const.isEmpty( query ) && Const.isEmpty( fields ) ) {
-      if ( meta.getQueryIsPipeline() ) {
+
+    // Executing for each row, perform substitutions
+    if ( meta.getExecuteForEachIncomingRow() && m_currentInputRowDrivingQuery != null ) {
+      // do field value substitution
+      query = fieldSubstitute( query, getInputRowMeta(), m_currentInputRowDrivingQuery );
+      fields = fieldSubstitute( fields, getInputRowMeta(), m_currentInputRowDrivingQuery );
+    }
+
+    logDetailed( BaseMessages.getString( PKG, "MongoDbInput.Message.ExecutingQuery", query ) );
+
+    if ( meta.getQueryIsPipeline() ) {
+
+      // pipeline aggregations require a query
+      if ( Utils.isEmpty( query ) ) {
         throw new KettleException( BaseMessages
-            .getString( MongoDbInputMeta.PKG, "MongoDbInput.ErrorMessage.EmptyAggregationPipeline" ) ); //$NON-NLS-1$
+            .getString( MongoDbInputMeta.PKG, "MongoDbInput.ErrorMessage.EmptyAggregationPipeline" ) );
       }
 
-      data.cursor = data.collection.find();
+      data.cursor =
+          data.collection.aggregate( BsonArray.parse( query ).stream()
+              .map( BsonValue::asDocument )
+              .map( BsonDocument::toJson )
+              .map( Document::parse )
+              .collect( Collectors.toList() ) )
+              .allowDiskUse( meta.isAllowDiskUse() )
+              .cursor();
+
     } else {
 
-      if ( meta.getQueryIsPipeline() ) {
-        if ( Const.isEmpty( query ) ) {
-          throw new KettleException( BaseMessages
-              .getString( MongoDbInputMeta.PKG, "MongoDbInput.ErrorMessage.EmptyAggregationPipeline" ) ); //$NON-NLS-1$
-        }
-
-        if ( meta.getExecuteForEachIncomingRow() && m_currentInputRowDrivingQuery != null ) {
-          // do field value substitution
-          query = fieldSubstitute( query, getInputRowMeta(), m_currentInputRowDrivingQuery );
-        }
-
-        logDetailed( BaseMessages.getString( PKG, "MongoDbInput.Message.QueryPulledDataFrom", query ) );
-
-        List<DBObject> pipeline = MongodbInputDiscoverFieldsImpl.jsonPipelineToDBObjectList( query );
-        DBObject firstP = pipeline.get( 0 );
-        DBObject[] remainder = null;
-        if ( pipeline.size() > 1 ) {
-          remainder = new DBObject[pipeline.size() - 1];
-          for ( int i = 1; i < pipeline.size(); i++ ) {
-            remainder[i - 1] = pipeline.get( i );
-          }
-        } else {
-          remainder = new DBObject[0];
-        }
-
-        // Utilize MongoDB cursor class
-        data.m_pipelineResult = data.collection.aggregate( firstP, remainder, meta.isAllowDiskUse() );
-
-      } else {
-        if ( meta.getExecuteForEachIncomingRow() && m_currentInputRowDrivingQuery != null ) {
-          // do field value substitution
-          query = fieldSubstitute( query, getInputRowMeta(), m_currentInputRowDrivingQuery );
-
-          fields = fieldSubstitute( fields, getInputRowMeta(), m_currentInputRowDrivingQuery );
-        }
-
-        logDetailed( BaseMessages.getString( PKG, "MongoDbInput.Message.ExecutingQuery", query ) );
-
-        DBObject dbObject = (DBObject) JSON.parse( Const.isEmpty( query ) ? "{}" //$NON-NLS-1$
-            : query );
-        DBObject dbObject2 = (DBObject) JSON.parse( fields );
-        data.cursor = data.collection.find( dbObject, dbObject2 );
+      FindIterable<Document> findCommand = data.collection.find();
+      if ( !Utils.isEmpty( query ) ) {
+        findCommand = findCommand.filter( BasicDBObject.parse( query ) );
       }
+      if ( !Utils.isEmpty( fields ) ) {
+        findCommand = findCommand.projection( BasicDBObject.parse( fields ) );
+      }
+      data.cursor = findCommand.iterator();
     }
   }
 
-  @Override public boolean init( StepMetaInterface stepMetaInterface, StepDataInterface stepDataInterface ) {
-    if ( super.init( stepMetaInterface, stepDataInterface ) ) {
-      meta = (MongoDbInputMeta) stepMetaInterface;
-      data = (MongoDbInputData) stepDataInterface;
+  @Override 
+  public boolean init( StepMetaInterface stepMetaInterface, StepDataInterface stepDataInterface ) {
+    if( !super.init( stepMetaInterface, stepDataInterface ) ) {
+      return false;
+    }
+    
+    meta = (MongoDbInputMeta) stepMetaInterface;
+    data = (MongoDbInputData) stepDataInterface;
 
-      String hostname = environmentSubstitute( meta.getHostnames() );
-      int port = Const.toInt( environmentSubstitute( meta.getPort() ), MongoDbInputData.MONGO_DEFAULT_PORT );
-      String db = environmentSubstitute( meta.getDbName() );
-      String collection = environmentSubstitute( meta.getCollection() );
+    String db = environmentSubstitute( meta.getDbName() );
+    String collection = environmentSubstitute( meta.getCollection() );
 
-      try {
-        if ( Const.isEmpty( db ) ) {
-          throw new Exception( BaseMessages.getString( PKG, "MongoInput.ErrorMessage.NoDBSpecified" ) ); //$NON-NLS-1$
-        }
-
-        if ( Const.isEmpty( collection ) ) {
-          throw new Exception(
-              BaseMessages.getString( PKG, "MongoInput.ErrorMessage.NoCollectionSpecified" ) ); //$NON-NLS-1$
-        }
-
-        if ( !Const.isEmpty( meta.getAuthenticationUser() ) ) {
-          String
-              authInfo =
-              ( meta.getUseKerberosAuthentication() ? BaseMessages
-                  .getString( PKG, "MongoDbInput.Message.KerberosAuthentication",
-                      environmentSubstitute( meta.getAuthenticationUser() ) ) : BaseMessages
-                      .getString( PKG, "MongoDbInput.Message.NormalAuthentication",
-                        environmentSubstitute( meta.getAuthenticationUser() ) ) );
-
-          logBasic( authInfo );
-        }
-
-        // init connection constructs a MongoCredentials object if necessary
-        data.clientWrapper = MongoWrapperUtil.createMongoClientWrapper( meta, this, log );
-        data.collection = data.clientWrapper.getCollection( db, collection );
-
-        if ( !( (MongoDbInputMeta) stepMetaInterface ).getOutputJson() ) {
-          ( (MongoDbInputData) stepDataInterface )
-              .setMongoFields( ( (MongoDbInputMeta) stepMetaInterface ).getMongoFields() );
-        }
-
-        return true;
-      } catch ( Exception e ) {
-        logError( BaseMessages
-            .getString( PKG, "MongoDbInput.ErrorConnectingToMongoDb.Exception", hostname, "" //$NON-NLS-1$ //$NON-NLS-2$
-                    + port, db, collection ), e );
-        return false;
+    try {
+      
+      if ( Utils.isEmpty( db ) ) {
+        throw new Exception( BaseMessages.getString( PKG, "MongoInput.ErrorMessage.NoDBSpecified" ) ); //$NON-NLS-1$
       }
-    } else {
+
+      if ( Utils.isEmpty( collection ) ) {
+        throw new Exception( BaseMessages.getString( PKG, "MongoInput.ErrorMessage.NoCollectionSpecified" ) ); //$NON-NLS-1$
+      }
+
+      if ( !Utils.isEmpty( meta.getAuthenticationUser() ) ) {
+        String
+            authInfo =
+            ( meta.getUseKerberosAuthentication() ? BaseMessages
+                .getString( PKG, "MongoDbInput.Message.KerberosAuthentication",
+                    environmentSubstitute( meta.getAuthenticationUser() ) ) : BaseMessages
+                    .getString( PKG, "MongoDbInput.Message.NormalAuthentication",
+                      environmentSubstitute( meta.getAuthenticationUser() ) ) );
+
+        logBasic( authInfo );
+      }
+
+      // init connection constructs a MongoCredentials object if necessary
+      data.client = meta.getMongoClient( this );
+      data.collection = data.client.getDatabase( db ).getCollection( collection );
+
+      if ( !meta.getOutputJson() ) {
+        data.setMongoFields( meta.getMongoFields() );
+      }
+
+      return true;
+      
+    } catch ( Exception e ) {
+      logError( BaseMessages.getString( PKG, "MongoDbInput.ErrorConnectingToMongoDb.Exception", db, collection ), e );
       return false;
     }
   }
 
-  @Override public void dispose( StepMetaInterface smi, StepDataInterface sdi ) {
+  @Override 
+  public void dispose( StepMetaInterface smi, StepDataInterface sdi ) {
     if ( data.cursor != null ) {
       try {
         data.cursor.close();
-      } catch ( MongoDbException e ) {
-        log.logError( e.getMessage() );
+      } catch ( Exception e ) {
+        log.logError( e.getMessage(), e );
       }
     }
-    if ( data.clientWrapper != null ) {
+    if ( data.client != null ) {
       try {
-        data.clientWrapper.dispose();
-      } catch ( MongoDbException e ) {
-        log.logError( e.getMessage() );
+        data.client.close();
+      } catch ( Exception e ) {
+        log.logError( e.getMessage(), e );
       }
     }
 

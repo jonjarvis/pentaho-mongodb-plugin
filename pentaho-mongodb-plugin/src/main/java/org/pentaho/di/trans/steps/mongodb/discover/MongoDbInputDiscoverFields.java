@@ -11,11 +11,11 @@
  ******************************************************************************/
 
 
-package org.pentaho.di.trans.steps.mongodbinput;
+package org.pentaho.di.trans.steps.mongodb.discover;
 
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.variables.VariableSpace;
-import org.pentaho.mongo.MongoProperties;
+import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputMeta;
 import org.pentaho.mongo.wrapper.field.MongoField;
 
 import java.util.List;
@@ -24,6 +24,9 @@ import java.util.List;
  * Created by brendan on 11/4/14.
  */
 public interface MongoDbInputDiscoverFields {
+  
+  /*
+  
   List<MongoField> discoverFields( MongoProperties.Builder properties, String db, String collection,
                                    String query, String fields,
                                    boolean isPipeline, int docsToSample, MongoDbInputMeta step, VariableSpace vars )
@@ -33,4 +36,6 @@ public interface MongoDbInputDiscoverFields {
                        String fields,
                        boolean isPipeline, int docsToSample, MongoDbInputMeta step,
                        VariableSpace vars, DiscoverFieldsCallback discoverFieldsCallback ) throws KettleException;
+
+  */
 }

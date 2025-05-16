@@ -13,20 +13,32 @@
 
 package org.pentaho.di.trans.steps.mongodb;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import org.pentaho.di.core.database.DatabaseMeta;
+import org.pentaho.di.core.encryption.Encr;
+import org.pentaho.di.core.exception.KettleException;
+import org.pentaho.di.core.exception.KettleXMLException;
 import org.pentaho.di.core.injection.Injection;
+import org.pentaho.di.core.util.Utils;
+import org.pentaho.di.core.variables.VariableSpace;
+import org.pentaho.di.core.xml.XMLHandler;
+import org.pentaho.di.repository.ObjectId;
+import org.pentaho.di.repository.Repository;
 import org.pentaho.di.trans.step.BaseStepMeta;
 import org.pentaho.di.trans.step.StepMetaInterface;
 import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputMeta;
-import org.pentaho.mongo.NamedReadPreference;
+import org.pentaho.metastore.api.IMetaStore;
+import org.w3c.dom.Node;
 
-import java.util.List;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 
 public abstract class MongoDbMeta extends BaseStepMeta implements StepMetaInterface {
   protected static Class<?> PKG = MongoDbInputMeta.class; // for i18n purposes
-  private static final String INPUT_DATABASE = "INPUT_DATABASE";
-  private static final String INPUT_COLLECTION = "INPUT_COLLECTION";
 
-   @Injection( name = "HOSTNAME" )
+  @Injection( name = "HOSTNAME" )
   private String hostname = "localhost"; //$NON-NLS-1$
 
   @Injection( name = "PORT" )
@@ -34,18 +46,22 @@ public abstract class MongoDbMeta extends BaseStepMeta implements StepMetaInterf
 
   @Injection( name = "DATABASE_NAME" )
   private String dbName;
+  
   @Injection( name = "COLLECTION" )
   private String collection;
 
   @Injection( name = "AUTH_DATABASE" )
   private String authenticationDatabaseName;
+  
   @Injection( name = "AUTH_USERNAME" )
   private String authenticationUser;
+  
   @Injection( name = "AUTH_PASSWORD" )
   private String authenticationPassword;
 
   @Injection( name = "AUTH_MECHANISM" )
   private String authenticationMechanism = "";
+  
   @Injection( name = "AUTH_KERBEROS" )
   private boolean m_kerberos;
 
@@ -59,7 +75,7 @@ public abstract class MongoDbMeta extends BaseStepMeta implements StepMetaInterf
    * primary, primaryPreferred, secondary, secondaryPreferred, nearest
    */
   @Injection( name = "READ_PREFERENCE" )
-  private String m_readPreference = NamedReadPreference.PRIMARY.getName();
+  private String m_readPreference = "PRIMARY"; //NamedReadPreference.PRIMARY.getName();
 
   /**
    * whether to discover and use all replica set members (if not already
@@ -450,4 +466,145 @@ public abstract class MongoDbMeta extends BaseStepMeta implements StepMetaInterf
   public void setConnectionString( String connectionString ) {
     this.connectionString = connectionString;
   }
+  
+  @Override
+  public void readRep( Repository rep, IMetaStore metaStore, ObjectId id_step, List<DatabaseMeta> databases )
+    throws KettleException {
+    
+    setUseConnectionString( rep.getStepAttributeBoolean( id_step, 0, "use_connection_string" ) );
+    setUseLegacyOptions( rep.getStepAttributeBoolean( id_step, 0, "use_legacy_options" ) );
+    setConnectionString( Encr.decryptPasswordOptionallyEncrypted(
+            rep.getStepAttributeString( id_step, "connection_string" ) ) );
+    setHostnames( rep.getStepAttributeString( id_step, "hostname" ) ); //$NON-NLS-1$
+    setPort( rep.getStepAttributeString( id_step, "port" ) ); //$NON-NLS-1$
+    setUseAllReplicaSetMembers( rep.getStepAttributeBoolean( id_step, 0, "use_all_replica_members" ) ); //$NON-NLS-1$
+    setDbName( rep.getStepAttributeString( id_step, "db_name" ) ); //$NON-NLS-1$
+    
+    setCollection( rep.getStepAttributeString( id_step, "collection" ) ); //$NON-NLS-1$
+
+    setAuthenticationDatabaseName( rep.getStepAttributeString( id_step, "auth_database" ) ); //$NON-NLS-1$
+    setAuthenticationMechanism( rep.getStepAttributeString( id_step, "auth_mech" ) );
+    setAuthenticationUser( rep.getStepAttributeString( id_step, "auth_user" ) ); //$NON-NLS-1$
+    setAuthenticationPassword( Encr.decryptPasswordOptionallyEncrypted( rep.getStepAttributeString( id_step,
+            "auth_password" ) ) ); //$NON-NLS-1$
+    setUseKerberosAuthentication( rep.getStepAttributeBoolean( id_step, "auth_kerberos" ) ); //$NON-NLS-1$
+    setConnectTimeout( rep.getStepAttributeString( id_step, "connect_timeout" ) ); //$NON-NLS-1$
+    setSocketTimeout( rep.getStepAttributeString( id_step, "socket_timeout" ) ); //$NON-NLS-1$
+    setUseSSLSocketFactory( rep.getStepAttributeBoolean( id_step, 0, "use_ssl_socket_factory", false ) );
+    setReadPreference( rep.getStepAttributeString( id_step, "read_preference" ) ); //$NON-NLS-1$
+    
+  }
+  
+  @Override
+  public void saveRep( Repository rep, IMetaStore metaStore, ObjectId id_transformation, ObjectId id_step )
+    throws KettleException {
+    
+    rep.saveStepAttribute( id_transformation, id_step, "use_connection_string", isUseConnectionString() );
+    rep.saveStepAttribute( id_transformation, id_step, "use_legacy_options", isUseLegacyOptions() );
+    rep.saveStepAttribute( id_transformation, id_step, "connection_string",
+            Encr.encryptPasswordIfNotUsingVariables( getConnectionString() ) );
+    rep.saveStepAttribute( id_transformation, id_step, "hostname", getHostnames() ); //$NON-NLS-1$
+    rep.saveStepAttribute( id_transformation, id_step, "port", getPort() ); //$NON-NLS-1$
+    rep.saveStepAttribute( id_transformation, id_step, "use_all_replica_members", getUseAllReplicaSetMembers() ); //$NON-NLS-1$
+    rep.saveStepAttribute( id_transformation, id_step, "db_name", getDbName() ); //$NON-NLS-1$
+    rep.saveStepAttribute( id_transformation, id_step, "collection", getCollection() ); //$NON-NLS-1$
+    
+    rep.saveStepAttribute( id_transformation, id_step, "auth_database", //$NON-NLS-1$
+            getAuthenticationDatabaseName() );
+    rep.saveStepAttribute( id_transformation, id_step, "auth_user", //$NON-NLS-1$
+            getAuthenticationUser() );
+    rep.saveStepAttribute( id_transformation, id_step, "auth_password", //$NON-NLS-1$
+            Encr.encryptPasswordIfNotUsingVariables( getAuthenticationPassword() ) );
+    rep.saveStepAttribute( id_transformation, id_step, "auth_mech", getAuthenticationMechanism() );
+    rep.saveStepAttribute( id_transformation, id_step, "auth_kerberos", getUseKerberosAuthentication() );
+    rep.saveStepAttribute( id_transformation, id_step, "connect_timeout", getConnectTimeout() ); //$NON-NLS-1$
+    rep.saveStepAttribute( id_transformation, id_step, "socket_timeout", getSocketTimeout() ); //$NON-NLS-1$
+    rep.saveStepAttribute( id_transformation, id_step, "use_ssl_socket_factory", isUseSSLSocketFactory() );
+    rep.saveStepAttribute( id_transformation, id_step, "read_preference", getReadPreference() ); //$NON-NLS-1$
+    
+  }
+  
+  @Override
+  public void loadXML( Node stepnode, List<DatabaseMeta> databases, IMetaStore metaStore ) throws KettleXMLException {
+    
+    String useConnectionString =  XMLHandler.getTagValue( stepnode, "use_connection_string" );
+    String useLegacyOptions =  XMLHandler.getTagValue( stepnode, "use_legacy_options" );
+    if ( !Utils.isEmpty( useConnectionString ) && useConnectionString.equalsIgnoreCase( "Y" ) ) {
+      setUseConnectionString( true );
+    } else if ( !Utils.isEmpty( useLegacyOptions ) && useLegacyOptions.equalsIgnoreCase( "Y" ) ) {
+      setUseLegacyOptions( true );
+    } else {
+      setUseLegacyOptions( true );
+    }
+    setConnectionString( Encr.decryptPasswordOptionallyEncrypted(
+            XMLHandler.getTagValue( stepnode, "connection_string" ) ) );
+    setHostnames( XMLHandler.getTagValue( stepnode, "hostname" ) ); //$NON-NLS-1$
+    setPort( XMLHandler.getTagValue( stepnode, "port" ) ); //$NON-NLS-1$
+    setDbName( XMLHandler.getTagValue( stepnode, "db_name" ) ); //$NON-NLS-1$
+    setCollection( XMLHandler.getTagValue( stepnode, "collection" ) ); //$NON-NLS-1$
+
+    setAuthenticationDatabaseName( XMLHandler.getTagValue( stepnode, "auth_database" ) ); //$NON-NLS-1$
+    setAuthenticationUser( XMLHandler.getTagValue( stepnode, "auth_user" ) ); //$NON-NLS-1$
+    setAuthenticationPassword( Encr.decryptPasswordOptionallyEncrypted( XMLHandler.getTagValue( stepnode,
+      "auth_password" ) ) ); //$NON-NLS-1$
+
+    setAuthenticationMechanism( XMLHandler.getTagValue( stepnode, "auth_mech" ) );
+    boolean kerberos = false;
+    String useKerberos = XMLHandler.getTagValue( stepnode, "auth_kerberos" ); //$NON-NLS-1$
+    if ( !Utils.isEmpty( useKerberos ) ) {
+      kerberos = useKerberos.equalsIgnoreCase( "Y" );
+    }
+    setUseKerberosAuthentication( kerberos );
+    setConnectTimeout( XMLHandler.getTagValue( stepnode, "connect_timeout" ) ); //$NON-NLS-1$
+    setSocketTimeout( XMLHandler.getTagValue( stepnode, "socket_timeout" ) ); //$NON-NLS-1$
+    String useSSLSocketFactory =  XMLHandler.getTagValue( stepnode, "use_ssl_socket_factory" );
+    if ( !Utils.isEmpty( useSSLSocketFactory ) ) {
+      setUseSSLSocketFactory( useSSLSocketFactory.equalsIgnoreCase( "Y" ) );
+    }
+    setReadPreference( XMLHandler.getTagValue( stepnode, "read_preference" ) ); //$NON-NLS-1$
+    
+
+    
+  }
+  
+  
+  public void getXML( StringBuilder retval ) {
+    
+    retval.append( "    " ).append( XMLHandler.addTagValue( "use_connection_string", isUseConnectionString() ) );
+    retval.append( "    " ).append( XMLHandler.addTagValue( "use_legacy_options", isUseLegacyOptions() ) );
+    retval.append( "    " ).append( XMLHandler.addTagValue( "connection_string",
+            Encr.encryptPasswordIfNotUsingVariables( getConnectionString() ) ) );
+    retval.append( "    " ).append( XMLHandler.addTagValue( "hostname", getHostnames() ) ); //$NON-NLS-1$ //$NON-NLS-2$
+    retval.append( "    " ).append( XMLHandler.addTagValue( "port", getPort() ) ); //$NON-NLS-1$ //$NON-NLS-2$
+    retval.append( "    " ).append( XMLHandler.addTagValue( "use_all_replica_members", getUseAllReplicaSetMembers() ) ); //$NON-NLS-1$ //$NON-NLS-2$
+    retval.append( "    " ).append( XMLHandler.addTagValue( "db_name", getDbName() ) ); //$NON-NLS-1$ //$NON-NLS-2$
+    retval.append( "    " ).append( XMLHandler.addTagValue( "collection", getCollection() ) ); //$NON-NLS-1$ //$NON-NLS-2$
+    retval.append( "    " ).append( //$NON-NLS-1$
+            XMLHandler.addTagValue( "auth_database", getAuthenticationDatabaseName() ) ); //$NON-NLS-1$
+    retval.append( "    " ).append( //$NON-NLS-1$
+            XMLHandler.addTagValue( "auth_user", getAuthenticationUser() ) ); //$NON-NLS-1$
+    retval.append( "    " ).append( //$NON-NLS-1$
+            XMLHandler.addTagValue( "auth_password", //$NON-NLS-1$
+                    Encr.encryptPasswordIfNotUsingVariables( getAuthenticationPassword() ) ) );
+    retval.append( "    " ).append( //$NON-NLS-1$
+            XMLHandler.addTagValue( "auth_mech", getAuthenticationMechanism() ) );
+    retval.append( "    " ).append( //$NON-NLS-1$
+            XMLHandler.addTagValue( "auth_kerberos", getUseKerberosAuthentication() ) ); //$NON-NLS-1$
+    retval.append( "    " ).append( //$NON-NLS-1$
+            XMLHandler.addTagValue( "connect_timeout", getConnectTimeout() ) ); //$NON-NLS-1$
+    retval.append( "    " ).append( //$NON-NLS-1$
+            XMLHandler.addTagValue( "socket_timeout", getSocketTimeout() ) ); //$NON-NLS-1$
+    retval.append( "    " ).append( //$NON-NLS-1$
+            XMLHandler.addTagValue( "use_ssl_socket_factory", isUseSSLSocketFactory() ) ); //$NON-NLS-1$
+    retval.append( "    " ).append( //$NON-NLS-1$
+            XMLHandler.addTagValue( "read_preference", getReadPreference() ) ); //$NON-NLS-1$
+    
+  }
+  
+  
+  
+  public MongoClient getMongoClient( VariableSpace vs ) {
+    return MongoClients.create( Encr.decryptPasswordOptionallyEncrypted( vs.environmentSubstitute( getConnectionString() ) ) );
+  }
+  
 }

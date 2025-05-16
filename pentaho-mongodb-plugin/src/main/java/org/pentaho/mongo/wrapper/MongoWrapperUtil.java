@@ -13,20 +13,14 @@
 
 package org.pentaho.mongo.wrapper;
 
-import com.google.common.annotations.VisibleForTesting;
-import org.pentaho.di.core.encryption.Encr;
-import org.pentaho.di.core.logging.LogChannelInterface;
-import org.pentaho.di.core.variables.VariableSpace;
-import org.pentaho.di.trans.steps.mongodb.MongoDbMeta;
-import org.pentaho.mongo.MongoDbException;
-import org.pentaho.mongo.MongoProp;
-import org.pentaho.mongo.MongoProperties;
-import org.pentaho.mongo.MongoUtilLogger;
-
 /**
  * Created by bryan on 8/7/14.
  */
 public class MongoWrapperUtil {
+  
+  
+  /*
+  
   private static MongoWrapperClientFactory mongoWrapperClientFactory = new MongoWrapperClientFactory() {
     @Override public MongoClientWrapper createMongoClientWrapper( MongoProperties props, MongoUtilLogger log )
       throws MongoDbException {
@@ -113,4 +107,8 @@ public class MongoWrapperUtil {
       builder.set( prop, value );
     }
   }
+  
+  */
+  
+  
 }

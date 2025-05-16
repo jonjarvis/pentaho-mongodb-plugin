@@ -13,20 +13,24 @@
 
 package org.pentaho.di.trans.steps.mongodbinput;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.pentaho.di.core.CheckResultInterface;
-import org.pentaho.di.core.Const;
 import org.pentaho.di.core.annotations.Step;
 import org.pentaho.di.core.database.DatabaseMeta;
 import org.pentaho.di.core.encryption.Encr;
 import org.pentaho.di.core.exception.KettleException;
+import org.pentaho.di.core.exception.KettlePluginException;
 import org.pentaho.di.core.exception.KettleStepException;
 import org.pentaho.di.core.exception.KettleXMLException;
 import org.pentaho.di.core.injection.Injection;
 import org.pentaho.di.core.injection.InjectionDeep;
 import org.pentaho.di.core.injection.InjectionSupported;
 import org.pentaho.di.core.row.RowMetaInterface;
-import org.pentaho.di.core.row.ValueMeta;
 import org.pentaho.di.core.row.ValueMetaInterface;
+import org.pentaho.di.core.row.value.ValueMetaFactory;
+import org.pentaho.di.core.row.value.ValueMetaString;
 import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.core.xml.XMLHandler;
@@ -39,13 +43,9 @@ import org.pentaho.di.trans.step.StepDataInterface;
 import org.pentaho.di.trans.step.StepInterface;
 import org.pentaho.di.trans.step.StepMeta;
 import org.pentaho.di.trans.steps.mongodb.MongoDbMeta;
-import org.pentaho.dictionary.DictionaryConst;
 import org.pentaho.metastore.api.IMetaStore;
-import org.pentaho.metaverse.api.analyzer.kettle.annotations.Metaverse;
 import org.pentaho.mongo.wrapper.field.MongoField;
 import org.w3c.dom.Node;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Created on 8-apr-2011
@@ -53,7 +53,7 @@ import java.util.List;
  * @author matt
  * @since 4.2.0-M1
  */
-@Step( id = "MongoDbInput", image = "mongodb-input.svg", name = "MongoDB input",
+@Step( id = "MongoDbInput", image = "mongodb-input.svg", name = "MongoDB input new",
         description = "Reads from a Mongo DB collection",
         documentationUrl = "mk-95pdia003/pdi-transformation-steps/mongodb-input",
         categoryDescription = "Big Data" )
@@ -102,6 +102,7 @@ public class MongoDbInputMeta extends MongoDbMeta {
 
   @Override
   public void loadXML( Node stepnode, List<DatabaseMeta> databases, IMetaStore metaStore ) throws KettleXMLException {
+    super.loadXML( stepnode, databases, metaStore );
     readData( stepnode );
   }
 
@@ -113,64 +114,31 @@ public class MongoDbInputMeta extends MongoDbMeta {
 
   private void readData( Node stepnode ) throws KettleXMLException {
     try {
-      String useConnectionString =  XMLHandler.getTagValue( stepnode, "use_connection_string" );
-      String useLegacyOptions =  XMLHandler.getTagValue( stepnode, "use_legacy_options" );
-      if ( !Utils.isEmpty( useConnectionString ) && useConnectionString.equalsIgnoreCase( "Y" ) ) {
-        setUseConnectionString( true );
-      } else if ( !Utils.isEmpty( useLegacyOptions ) && useLegacyOptions.equalsIgnoreCase( "Y" ) ) {
-        setUseLegacyOptions( true );
-      } else {
-        setUseLegacyOptions( true );
-      }
-      setConnectionString( Encr.decryptPasswordOptionallyEncrypted(
-              XMLHandler.getTagValue( stepnode, "connection_string" ) ) );
-      setHostnames( XMLHandler.getTagValue( stepnode, "hostname" ) ); //$NON-NLS-1$
-      setPort( XMLHandler.getTagValue( stepnode, "port" ) ); //$NON-NLS-1$
-      setDbName( XMLHandler.getTagValue( stepnode, "db_name" ) ); //$NON-NLS-1$
+     
       fields = XMLHandler.getTagValue( stepnode, "fields_name" ); //$NON-NLS-1$
-      setCollection( XMLHandler.getTagValue( stepnode, "collection" ) ); //$NON-NLS-1$
       jsonFieldName = XMLHandler.getTagValue( stepnode, "json_field_name" ); //$NON-NLS-1$
       jsonQuery = XMLHandler.getTagValue( stepnode, "json_query" ); //$NON-NLS-1$
-      setAuthenticationDatabaseName( XMLHandler.getTagValue( stepnode, "auth_database" ) ); //$NON-NLS-1$
-      setAuthenticationUser( XMLHandler.getTagValue( stepnode, "auth_user" ) ); //$NON-NLS-1$
-      setAuthenticationPassword( Encr.decryptPasswordOptionallyEncrypted( XMLHandler.getTagValue( stepnode,
-        "auth_password" ) ) ); //$NON-NLS-1$
-
-      setAuthenticationMechanism( XMLHandler.getTagValue( stepnode, "auth_mech" ) );
-      boolean kerberos = false;
-      String useKerberos = XMLHandler.getTagValue( stepnode, "auth_kerberos" ); //$NON-NLS-1$
-      if ( !Const.isEmpty( useKerberos ) ) {
-        kerberos = useKerberos.equalsIgnoreCase( "Y" );
-      }
-      setUseKerberosAuthentication( kerberos );
-      setConnectTimeout( XMLHandler.getTagValue( stepnode, "connect_timeout" ) ); //$NON-NLS-1$
-      setSocketTimeout( XMLHandler.getTagValue( stepnode, "socket_timeout" ) ); //$NON-NLS-1$
-      String useSSLSocketFactory =  XMLHandler.getTagValue( stepnode, "use_ssl_socket_factory" );
-      if ( !Utils.isEmpty( useSSLSocketFactory ) ) {
-        setUseSSLSocketFactory( useSSLSocketFactory.equalsIgnoreCase( "Y" ) );
-      }
-      setReadPreference( XMLHandler.getTagValue( stepnode, "read_preference" ) ); //$NON-NLS-1$
 
       m_outputJson = true; // default to true for backwards compatibility
       String outputJson = XMLHandler.getTagValue( stepnode, "output_json" ); //$NON-NLS-1$
-      if ( !Const.isEmpty( outputJson ) ) {
+      if ( !Utils.isEmpty( outputJson ) ) {
         m_outputJson = outputJson.equalsIgnoreCase( "Y" ); //$NON-NLS-1$
       }
 
       setUseAllReplicaSetMembers( "Y".equalsIgnoreCase( XMLHandler.getTagValue( stepnode, "use_all_replica_members" ) ) ); //$NON-NLS-1$
 
       String queryIsPipe = XMLHandler.getTagValue( stepnode, "query_is_pipeline" ); //$NON-NLS-1$
-      if ( !Const.isEmpty( queryIsPipe ) ) {
+      if ( !Utils.isEmpty( queryIsPipe ) ) {
         m_aggPipeline = queryIsPipe.equalsIgnoreCase( "Y" ); //$NON-NLS-1$
       }
 
       String allowDiskUsage = XMLHandler.getTagValue( stepnode, "allow_disk_use" ); //$NON-NLS-1$
-      if ( !Const.isEmpty( allowDiskUsage ) ) {
+      if ( !Utils.isEmpty( allowDiskUsage ) ) {
         allowDiskUse = allowDiskUsage.equalsIgnoreCase( "Y" ); //$NON-NLS-1$
       }
 
       String executeForEachR = XMLHandler.getTagValue( stepnode, "execute_for_each_row" );
-      if ( !Const.isEmpty( executeForEachR ) ) {
+      if ( !Utils.isEmpty( executeForEachR ) ) {
         m_executeForEachIncomingRow = executeForEachR.equalsIgnoreCase( "Y" );
       }
 
@@ -196,7 +164,7 @@ public class MongoDbInputMeta extends MongoDbMeta {
       }
 
       String tags = XMLHandler.getTagValue( stepnode, "tag_sets" ); //$NON-NLS-1$
-      if ( !Const.isEmpty( tags ) ) {
+      if ( !Utils.isEmpty( tags ) ) {
         setReadPrefTagSets( new ArrayList<String>() );
 
         String[] parts = tags.split( "#@#" ); //$NON-NLS-1$
@@ -216,10 +184,9 @@ public class MongoDbInputMeta extends MongoDbMeta {
     setDbName( "db" ); //$NON-NLS-1$
     setCollection( "collection" ); //$NON-NLS-1$
     setUseConnectionString( true ); //$NON-NLS-1$
-    jsonFieldName = "json"; //$NON-NLS-1$
+    setJsonFieldName( "json" );
   }
 
-  @SuppressWarnings( "deprecation" )
   @Override
   public void getFields( RowMetaInterface rowMeta, String origin, RowMetaInterface[] info, StepMeta nextStep,
                          VariableSpace space ) throws KettleStepException {
@@ -230,19 +197,22 @@ public class MongoDbInputMeta extends MongoDbMeta {
     }
 
     if ( m_outputJson || m_fields == null || m_fields.size() == 0 ) {
-      ValueMetaInterface jsonValueMeta = new ValueMeta( jsonFieldName, ValueMetaInterface.TYPE_STRING );
+      ValueMetaInterface jsonValueMeta = new ValueMetaString( jsonFieldName );
       jsonValueMeta.setOrigin( origin );
       rowMeta.addValueMeta( jsonValueMeta );
     } else {
+      try {
       for ( MongoField f : m_fields ) {
-        ValueMetaInterface vm = new ValueMeta();
+        ValueMetaInterface vm = ValueMetaFactory.createValueMeta( ValueMetaFactory.getIdForValueMeta( f.m_kettleType ) );
         vm.setName( f.m_fieldName );
         vm.setOrigin( origin );
-        vm.setType( ValueMeta.getType( f.m_kettleType ) );
         if ( f.m_indexedVals != null ) {
           vm.setIndex( f.m_indexedVals.toArray() ); // indexed values
         }
         rowMeta.addValueMeta( vm );
+      }
+      } catch( KettlePluginException e ) {
+        throw new KettleStepException( e );
       }
     }
   }
@@ -272,39 +242,14 @@ public class MongoDbInputMeta extends MongoDbMeta {
 
   @Override
   public String getXML() {
-    StringBuffer retval = new StringBuffer( 300 );
+    StringBuilder retval = new StringBuilder( 300 );
 
-    retval.append( "    " ).append( XMLHandler.addTagValue( "use_connection_string", isUseConnectionString() ) );
-    retval.append( "    " ).append( XMLHandler.addTagValue( "use_legacy_options", isUseLegacyOptions() ) );
-    retval.append( "    " ).append( XMLHandler.addTagValue( "connection_string",
-            Encr.encryptPasswordIfNotUsingVariables( getConnectionString() ) ) );
-    retval.append( "    " ).append( XMLHandler.addTagValue( "hostname", getHostnames() ) ); //$NON-NLS-1$ //$NON-NLS-2$
-    retval.append( "    " ).append( XMLHandler.addTagValue( "port", getPort() ) ); //$NON-NLS-1$ //$NON-NLS-2$
-    retval.append( "    " ).append( XMLHandler.addTagValue( "use_all_replica_members", getUseAllReplicaSetMembers() ) ); //$NON-NLS-1$ //$NON-NLS-2$
-    retval.append( "    " ).append( XMLHandler.addTagValue( "db_name", getDbName() ) ); //$NON-NLS-1$ //$NON-NLS-2$
+    super.getXML( retval );
+    
     retval.append( "    " ).append( XMLHandler.addTagValue( "fields_name", fields ) ); //$NON-NLS-1$ //$NON-NLS-2$
-    retval.append( "    " ).append( XMLHandler.addTagValue( "collection", getCollection() ) ); //$NON-NLS-1$ //$NON-NLS-2$
     retval.append( "    " ).append( XMLHandler.addTagValue( "json_field_name", jsonFieldName ) ); //$NON-NLS-1$ //$NON-NLS-2$
     retval.append( "    " ).append( XMLHandler.addTagValue( "json_query", jsonQuery ) ); //$NON-NLS-1$ //$NON-NLS-2$
-    retval.append( "    " ).append( //$NON-NLS-1$
-            XMLHandler.addTagValue( "auth_database", getAuthenticationDatabaseName() ) ); //$NON-NLS-1$
-    retval.append( "    " ).append( //$NON-NLS-1$
-            XMLHandler.addTagValue( "auth_user", getAuthenticationUser() ) ); //$NON-NLS-1$
-    retval.append( "    " ).append( //$NON-NLS-1$
-            XMLHandler.addTagValue( "auth_password", //$NON-NLS-1$
-                    Encr.encryptPasswordIfNotUsingVariables( getAuthenticationPassword() ) ) );
-    retval.append( "    " ).append( //$NON-NLS-1$
-            XMLHandler.addTagValue( "auth_mech", getAuthenticationMechanism() ) );
-    retval.append( "    " ).append( //$NON-NLS-1$
-            XMLHandler.addTagValue( "auth_kerberos", getUseKerberosAuthentication() ) ); //$NON-NLS-1$
-    retval.append( "    " ).append( //$NON-NLS-1$
-            XMLHandler.addTagValue( "connect_timeout", getConnectTimeout() ) ); //$NON-NLS-1$
-    retval.append( "    " ).append( //$NON-NLS-1$
-            XMLHandler.addTagValue( "socket_timeout", getSocketTimeout() ) ); //$NON-NLS-1$
-    retval.append( "    " ).append( //$NON-NLS-1$
-            XMLHandler.addTagValue( "use_ssl_socket_factory", isUseSSLSocketFactory() ) ); //$NON-NLS-1$
-    retval.append( "    " ).append( //$NON-NLS-1$
-            XMLHandler.addTagValue( "read_preference", getReadPreference() ) ); //$NON-NLS-1$
+    
     retval.append( "    " ).append( //$NON-NLS-1$
             XMLHandler.addTagValue( "output_json", m_outputJson ) ); //$NON-NLS-1$
     retval.append( "    " ).append( //$NON-NLS-1$
@@ -338,40 +283,23 @@ public class MongoDbInputMeta extends MongoDbMeta {
     }
 
     String tags = tagSetsToString();
-    if ( !Const.isEmpty( tags ) ) {
+    if ( !Utils.isEmpty( tags ) ) {
       retval.append( "    " ).append( XMLHandler.addTagValue( "tag_sets", tags ) ); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     return retval.toString();
   }
 
-  @Override public void readRep( Repository rep, IMetaStore metaStore, ObjectId id_step, List<DatabaseMeta> databases )
+  @Override 
+  public void readRep( Repository rep, IMetaStore metaStore, ObjectId id_step, List<DatabaseMeta> databases )
           throws KettleException {
     try {
-      setUseConnectionString( rep.getStepAttributeBoolean( id_step, 0, "use_connection_string" ) );
-      setUseLegacyOptions( rep.getStepAttributeBoolean( id_step, 0, "use_legacy_options" ) );
-      setConnectionString( Encr.decryptPasswordOptionallyEncrypted(
-              rep.getStepAttributeString( id_step, "connection_string" ) ) );
-      setHostnames( rep.getStepAttributeString( id_step, "hostname" ) ); //$NON-NLS-1$
-      setPort( rep.getStepAttributeString( id_step, "port" ) ); //$NON-NLS-1$
-      setUseAllReplicaSetMembers( rep.getStepAttributeBoolean( id_step, 0, "use_all_replica_members" ) ); //$NON-NLS-1$
-      setDbName( rep.getStepAttributeString( id_step, "db_name" ) ); //$NON-NLS-1$
+      
+      super.readRep( rep, metaStore, id_step, databases );
+
       fields = rep.getStepAttributeString( id_step, "fields_name" ); //$NON-NLS-1$
-      setCollection( rep.getStepAttributeString( id_step, "collection" ) ); //$NON-NLS-1$
       jsonFieldName = rep.getStepAttributeString( id_step, "json_field_name" ); //$NON-NLS-1$
       jsonQuery = rep.getStepAttributeString( id_step, "json_query" ); //$NON-NLS-1$
-
-      setAuthenticationDatabaseName( rep.getStepAttributeString( id_step, "auth_database" ) ); //$NON-NLS-1$
-      setAuthenticationMechanism( rep.getStepAttributeString( id_step, "auth_mech" ) );
-      setAuthenticationUser( rep.getStepAttributeString( id_step, "auth_user" ) ); //$NON-NLS-1$
-      setAuthenticationPassword( Encr.decryptPasswordOptionallyEncrypted( rep.getStepAttributeString( id_step,
-              "auth_password" ) ) ); //$NON-NLS-1$
-      setUseKerberosAuthentication( rep.getStepAttributeBoolean( id_step, "auth_kerberos" ) ); //$NON-NLS-1$
-      setConnectTimeout( rep.getStepAttributeString( id_step, "connect_timeout" ) ); //$NON-NLS-1$
-      setSocketTimeout( rep.getStepAttributeString( id_step, "socket_timeout" ) ); //$NON-NLS-1$
-      setUseSSLSocketFactory( rep.getStepAttributeBoolean( id_step, 0, "use_ssl_socket_factory", false ) );
-      setReadPreference( rep.getStepAttributeString( id_step, "read_preference" ) ); //$NON-NLS-1$
-
       m_outputJson = rep.getStepAttributeBoolean( id_step, 0, "output_json" ); //$NON-NLS-1$
       m_aggPipeline = rep.getStepAttributeBoolean( id_step, "query_is_pipeline" ); //$NON-NLS-1$
       allowDiskUse = rep.getStepAttributeBoolean( id_step, "allow_disk_use" ); //$NON-NLS-1$
@@ -397,7 +325,7 @@ public class MongoDbInputMeta extends MongoDbMeta {
       }
 
       String tags = rep.getStepAttributeString( id_step, "tag_sets" ); //$NON-NLS-1$
-      if ( !Const.isEmpty( tags ) ) {
+      if ( !Utils.isEmpty( tags ) ) {
         setReadPrefTagSets( new ArrayList<String>() );
 
         String[] parts = tags.split( "#@#" ); //$NON-NLS-1$
@@ -415,31 +343,13 @@ public class MongoDbInputMeta extends MongoDbMeta {
   public void saveRep( Repository rep, IMetaStore metaStore, ObjectId id_transformation, ObjectId id_step )
           throws KettleException {
     try {
-      rep.saveStepAttribute( id_transformation, id_step, "use_connection_string", isUseConnectionString() );
-      rep.saveStepAttribute( id_transformation, id_step, "use_legacy_options", isUseLegacyOptions() );
-      rep.saveStepAttribute( id_transformation, id_step, "connection_string",
-              Encr.encryptPasswordIfNotUsingVariables( getConnectionString() ) );
-      rep.saveStepAttribute( id_transformation, id_step, "hostname", getHostnames() ); //$NON-NLS-1$
-      rep.saveStepAttribute( id_transformation, id_step, "port", getPort() ); //$NON-NLS-1$
-      rep.saveStepAttribute( id_transformation, id_step, "use_all_replica_members", getUseAllReplicaSetMembers() ); //$NON-NLS-1$
-      rep.saveStepAttribute( id_transformation, id_step, "db_name", getDbName() ); //$NON-NLS-1$
+
+      super.saveRep( rep, metaStore, id_transformation, id_step );
+
       rep.saveStepAttribute( id_transformation, id_step, "fields_name", fields ); //$NON-NLS-1$
-      rep.saveStepAttribute( id_transformation, id_step, "collection", getCollection() ); //$NON-NLS-1$
       rep.saveStepAttribute( id_transformation, id_step, "json_field_name", jsonFieldName ); //$NON-NLS-1$
       rep.saveStepAttribute( id_transformation, id_step, "json_query", jsonQuery ); //$NON-NLS-1$
 
-      rep.saveStepAttribute( id_transformation, id_step, "auth_database", //$NON-NLS-1$
-              getAuthenticationDatabaseName() );
-      rep.saveStepAttribute( id_transformation, id_step, "auth_user", //$NON-NLS-1$
-              getAuthenticationUser() );
-      rep.saveStepAttribute( id_transformation, id_step, "auth_password", //$NON-NLS-1$
-              Encr.encryptPasswordIfNotUsingVariables( getAuthenticationPassword() ) );
-      rep.saveStepAttribute( id_transformation, id_step, "auth_mech", getAuthenticationMechanism() );
-      rep.saveStepAttribute( id_transformation, id_step, "auth_kerberos", getUseKerberosAuthentication() );
-      rep.saveStepAttribute( id_transformation, id_step, "connect_timeout", getConnectTimeout() ); //$NON-NLS-1$
-      rep.saveStepAttribute( id_transformation, id_step, "socket_timeout", getSocketTimeout() ); //$NON-NLS-1$
-      rep.saveStepAttribute( id_transformation, id_step, "use_ssl_socket_factory", isUseSSLSocketFactory() );
-      rep.saveStepAttribute( id_transformation, id_step, "read_preference", getReadPreference() ); //$NON-NLS-1$
       rep.saveStepAttribute( id_transformation, id_step, 0, "output_json", //$NON-NLS-1$
               m_outputJson );
       rep.saveStepAttribute( id_transformation, id_step, 0, "query_is_pipeline", //$NON-NLS-1$
@@ -468,7 +378,7 @@ public class MongoDbInputMeta extends MongoDbMeta {
       }
 
       String tags = tagSetsToString();
-      if ( !Const.isEmpty( tags ) ) {
+      if ( !Utils.isEmpty( tags ) ) {
         rep.saveStepAttribute( id_transformation, id_step, "tag_sets", tags ); //$NON-NLS-1$
       }
     } catch ( KettleException e ) {
@@ -486,12 +396,6 @@ public class MongoDbInputMeta extends MongoDbMeta {
   @Override
   public StepDataInterface getStepData() {
     return new MongoDbInputData();
-  }
-
-  @Override
-  public void check( List<CheckResultInterface> remarks, TransMeta transMeta, StepMeta stepMeta, RowMetaInterface prev,
-                     String[] input, String[] output, RowMetaInterface info ) {
-    // TODO add checks
   }
 
   /**

@@ -9,7 +9,7 @@
  *
  * Change Date: 2029-07-20
  ******************************************************************************/
-package org.pentaho.di.trans.steps.mongodbinput;
+package org.pentaho.di.trans.steps.mongodb.discover;
 
 import org.pentaho.mongo.wrapper.field.MongoField;
 

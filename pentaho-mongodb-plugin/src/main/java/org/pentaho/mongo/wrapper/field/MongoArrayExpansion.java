@@ -16,10 +16,10 @@ package org.pentaho.mongo.wrapper.field;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.pentaho.di.core.Const;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.row.RowDataUtil;
 import org.pentaho.di.core.row.RowMetaInterface;
+import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputData;
@@ -55,7 +55,7 @@ public class MongoArrayExpansion {
    * @throws KettleException if a problem occurs
    */
   public void init() throws KettleException {
-    if ( Const.isEmpty( m_expansionPath ) ) {
+    if ( Utils.isEmpty( m_expansionPath ) ) {
       throw new KettleException( BaseMessages.getString( PKG, "MongoDbInput.ErrorMessage.NoPathSet" ) ); //$NON-NLS-1$
     }
     if ( m_pathParts != null ) {

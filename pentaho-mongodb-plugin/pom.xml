@@ -34,23 +34,41 @@
     <mockito.version>5.10.0</mockito.version>
     <byte-buddy.version>1.12.16</byte-buddy.version>
     <junit.version>4.13.2</junit.version>
-    <mongo-driver.version>3.12.10</mongo-driver.version>
+    <mongo-driver.version>5.5.0</mongo-driver.version>
     <platform.version>10.3.0.0-SNAPSHOT</platform.version>
   </properties>
 
   <dependencies>
+	  <dependency>
+	    <groupId>org.mongodb</groupId>
+	    <artifactId>mongodb-driver-sync</artifactId>
+	    <version>${mongo-driver.version}</version>
+	</dependency>
     <dependency>
       <groupId>pentaho-kettle</groupId>
       <artifactId>kettle-core</artifactId>
       <version>${project.version}</version>
+      <exclusions>
+      	<exclusion>
+      		<groupId>xml-apis</groupId>
+      		<artifactId>*</artifactId>
+      	</exclusion>
+      </exclusions>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>pentaho-kettle</groupId>
       <artifactId>kettle-engine</artifactId>
       <version>${project.version}</version>
+      <exclusions>
+      	<exclusion>
+      		<groupId>xml-apis</groupId>
+      		<artifactId>*</artifactId>
+      	</exclusion>
+      </exclusions>
       <scope>provided</scope>
     </dependency>
+    
     <dependency>
       <groupId>pentaho-kettle</groupId>
       <artifactId>kettle-engine</artifactId>
@@ -64,24 +82,7 @@
       <version>${project.version}</version>
       <scope>provided</scope>
     </dependency>
-    <dependency>
-      <groupId>pentaho</groupId>
-      <artifactId>pentaho-mongo-utils</artifactId>
-      <version>${project.version}</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>pentaho</groupId>
-      <artifactId>pentaho-metaverse-api</artifactId>
-      <version>${project.version}</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>pentaho</groupId>
-      <artifactId>pentaho-platform-core</artifactId>
-      <version>${platform.version}</version>
-      <scope>provided</scope>
-    </dependency>
+
     <dependency>
       <groupId>org.easymock</groupId>
       <artifactId>easymock</artifactId>
@@ -100,6 +101,7 @@
         </exclusion>
       </exclusions>
     </dependency>
+    
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
@@ -112,17 +114,7 @@
       <version>2.0.0.0</version>
       <scope>test</scope>
     </dependency>
-    <dependency>
-      <groupId>javax.servlet</groupId>
-      <artifactId>javax.servlet-api</artifactId>
-      <version>3.0.1</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>xerces</groupId>
-      <artifactId>xercesImpl</artifactId>
-      <scope>test</scope>
-    </dependency>
+  
     <dependency>
       <groupId>pentaho-kettle</groupId>
       <artifactId>kettle-core</artifactId>
@@ -130,18 +122,8 @@
       <classifier>tests</classifier>
       <scope>test</scope>
     </dependency>
-    <dependency>
-      <groupId>net.bytebuddy</groupId>
-      <artifactId>byte-buddy-agent</artifactId>
-      <version>${byte-buddy.version}</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>net.bytebuddy</groupId>
-      <artifactId>byte-buddy</artifactId>
-      <version>${byte-buddy.version}</version>
-      <scope>test</scope>
-    </dependency>
+
+
   </dependencies>
 
 

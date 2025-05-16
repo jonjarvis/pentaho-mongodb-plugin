@@ -13,8 +13,14 @@
 
 package org.pentaho.di.ui.trans.steps.mongodbinput;
 
-import com.mongodb.DBObject;
-import com.mongodb.util.JSON;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
+
 import org.apache.commons.lang.StringUtils;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.CCombo;
@@ -33,18 +39,19 @@ import org.eclipse.swt.layout.FormData;
 import org.eclipse.swt.layout.FormLayout;
 import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
-import org.eclipse.swt.widgets.Shell;
-import org.eclipse.swt.widgets.Text;
 import org.eclipse.swt.widgets.Control;
-import org.eclipse.swt.widgets.Listener;
-import org.eclipse.swt.widgets.Event;
-import org.eclipse.swt.widgets.TableItem;
 import org.eclipse.swt.widgets.Display;
+import org.eclipse.swt.widgets.Event;
 import org.eclipse.swt.widgets.Label;
+import org.eclipse.swt.widgets.Listener;
+import org.eclipse.swt.widgets.Shell;
+import org.eclipse.swt.widgets.TableItem;
+import org.eclipse.swt.widgets.Text;
 import org.pentaho.di.core.Const;
 import org.pentaho.di.core.encryption.Encr;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.row.ValueMeta;
+import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.trans.Trans;
@@ -52,7 +59,6 @@ import org.pentaho.di.trans.TransMeta;
 import org.pentaho.di.trans.TransPreviewFactory;
 import org.pentaho.di.trans.step.BaseStepMeta;
 import org.pentaho.di.trans.step.StepDialogInterface;
-import org.pentaho.di.trans.steps.mongodbinput.DiscoverFieldsCallback;
 import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputData;
 import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputMeta;
 import org.pentaho.di.ui.core.FormDataBuilder;
@@ -67,29 +73,16 @@ import org.pentaho.di.ui.core.widget.PasswordTextVar;
 import org.pentaho.di.ui.core.widget.StyledTextComp;
 import org.pentaho.di.ui.core.widget.TableView;
 import org.pentaho.di.ui.core.widget.TextVar;
-import org.pentaho.di.ui.spoon.Spoon;
 import org.pentaho.di.ui.trans.dialog.TransPreviewProgressDialog;
 import org.pentaho.di.ui.trans.step.BaseStepDialog;
-import org.pentaho.mongo.MongoDbException;
-import org.pentaho.mongo.MongoProperties;
-import org.pentaho.mongo.NamedReadPreference;
-import org.pentaho.mongo.wrapper.MongoClientWrapper;
-import org.pentaho.mongo.wrapper.MongoWrapperUtil;
 import org.pentaho.mongo.wrapper.field.MongoField;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import com.mongodb.client.MongoClient;
 
 
 public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInterface {
   private static final Class<?> PKG = MongoDbInputMeta.class; // for i18n purposes,
-  // needed by
-  // Translator2!!
-  // $NON-NLS-1$
+
 
   private static final int RADIO_BUTTON_WIDTH = 250;
   public static final int FIELDS_SEP = 10;
@@ -139,6 +132,8 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
   private  Label tagSetsTitle;
   private final MongoDbInputMeta input;
 
+  //Using a tree map for case-insensitive equality
+  private Map<String, List<String> > collectionCache = new TreeMap<>( String.CASE_INSENSITIVE_ORDER );
 
   public MongoDbInputDialog( Shell parent, Object in, TransMeta tr, String sname ) {
     super( parent, (BaseStepMeta) in, tr, sname );
@@ -192,6 +187,7 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
 
     CTabFolder m_wTabFolder = new CTabFolder( shell, SWT.BORDER );
     m_wTabFolder.setSimple( false );
+    props.setLook( m_wTabFolder );
 
     // start of the config tab
     CTabItem m_wConfigTab = new CTabItem( m_wTabFolder, SWT.NONE );
@@ -256,7 +252,7 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     m_testConnStrBut.addSelectionListener( new SelectionAdapter() {
       @Override public void widgetSelected( SelectionEvent e ) {
         //function to test the mongodb connection using connectionstring
-        testConnection();
+        testConnection( true );
       }
     } );
 
@@ -573,12 +569,13 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     m_getDbsBut.setText( BaseMessages.getString( PKG, "MongoDbInputDialog.DbName.Button" ) ); //$NON-NLS-1$
     fd = new FormData();
     fd.right = new FormAttachment( 100, 0 );
-    fd.top = new FormAttachment( 0, 0 );
+    fd.top = new FormAttachment( 0, margin );
     m_getDbsBut.setLayoutData( fd );
 
     m_getDbsBut.addSelectionListener( new SelectionAdapter() {
-      @Override public void widgetSelected( SelectionEvent e ) {
-        setupDBNames();
+      @Override 
+      public void widgetSelected( SelectionEvent e ) {
+        testConnection( false );
       }
     } );
 
@@ -588,14 +585,16 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     FormData fdDbName = new FormData();
     fdDbName.left = new FormAttachment( middle, 0 );
     fdDbName.top = new FormAttachment( 0, margin );
-    fdDbName.right = new FormAttachment( m_getDbsBut, 0 );
+    fdDbName.right = new FormAttachment( m_getDbsBut, -margin );
     wDbName.setLayoutData( fdDbName );
     lastControl = wDbName;
 
     wDbName.addModifyListener( new ModifyListener() {
-      @Override public void modifyText( ModifyEvent e ) {
+      @Override 
+      public void modifyText( ModifyEvent e ) {
         input.setChanged();
         wDbName.setToolTipText( transMeta.environmentSubstitute( wDbName.getText() ) );
+        updateDbAndCollectionCombos( false );
       }
     } );
 
@@ -610,20 +609,6 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     fdlCollection.top = new FormAttachment( lastControl, margin );
     wlCollection.setLayoutData( fdlCollection );
 
-    Button m_getCollectionsBut = new Button( wInputOptionsComp, SWT.PUSH | SWT.CENTER );
-    props.setLook( m_getCollectionsBut );
-    m_getCollectionsBut
-            .setText( BaseMessages.getString( PKG, "MongoDbInputDialog.GetCollections.Button" ) ); //$NON-NLS-1$
-    fd = new FormData();
-    fd.right = new FormAttachment( 100, 0 );
-    fd.top = new FormAttachment( lastControl, 0 );
-    m_getCollectionsBut.setLayoutData( fd );
-
-    m_getCollectionsBut.addSelectionListener( new SelectionAdapter() {
-      @Override public void widgetSelected( SelectionEvent e ) {
-        setupCollectionNamesForDB();
-      }
-    } );
 
     wCollection = new CCombo( wInputOptionsComp, SWT.BORDER );
     props.setLook( wCollection );
@@ -631,12 +616,13 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     FormData fdCollection = new FormData();
     fdCollection.left = new FormAttachment( middle, 0 );
     fdCollection.top = new FormAttachment( lastControl, margin );
-    fdCollection.right = new FormAttachment( m_getCollectionsBut, 0 );
+    fdCollection.right = new FormAttachment( m_getDbsBut, -margin );
     wCollection.setLayoutData( fdCollection );
     lastControl = wCollection;
 
     wCollection.addSelectionListener( new SelectionAdapter() {
-      @Override public void widgetSelected( SelectionEvent e ) {
+      @Override 
+      public void widgetSelected( SelectionEvent e ) {
         updateQueryTitleInfo();
       }
     } );
@@ -674,10 +660,12 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
         m_readPreference.setToolTipText( transMeta.environmentSubstitute( m_readPreference.getText() ) );
       }
     } );
-
+    
+    /*
     for ( NamedReadPreference preference : NamedReadPreference.values() ) {
       m_readPreference.add( preference.getName() );
     }
+    */
 
     lastControl = m_readPreference;
 
@@ -735,7 +723,7 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
 
     getTagsBut.addSelectionListener( new SelectionAdapter() {
       @Override public void widgetSelected( SelectionEvent e ) {
-        setupTagSetComboValues();
+        concatenateTags();
       }
     } );
 
@@ -1171,7 +1159,7 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     dispose();
   }
 
-  private void getInfo( MongoDbInputMeta meta ) {
+  private MongoDbInputMeta getInfo( MongoDbInputMeta meta ) {
     meta.setUseLegacyOptions( wbIndividualFields.getSelection() );
     meta.setUseConnectionString( wbConnectionString.getSelection() );
     meta.setConnectionString( wConnString.getText() );
@@ -1209,7 +1197,7 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
         newField.m_fieldPath = item.getText( 2 ).trim();
         newField.m_kettleType = item.getText( 3 ).trim();
 
-        if ( !Const.isEmpty( item.getText( 4 ) ) ) {
+        if ( !Utils.isEmpty( item.getText( 4 ) ) ) {
           newField.m_indexedVals = MongoDbInputData.indexedValsList( item.getText( 4 ).trim() );
         }
 
@@ -1237,6 +1225,7 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
       }
     }
     meta.setReadPrefTagSets( tags );
+    return meta;
   }
 
   private void ok() {
@@ -1498,151 +1487,71 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     }
   }
 
-  private void setupDBNames() {
-    String current = wDbName.getText();
-    wDbName.removeAll();
-    String connectionString = Encr.decryptPasswordOptionallyEncrypted( transMeta.environmentSubstitute( wConnString.getText() ) );
-    String hostname = transMeta.environmentSubstitute( wHostname.getText() );
+  
+  
+  
+  // Test connection and or cache the database and collection names
+  private boolean testConnection( boolean showSuccessMessage ) {
 
-    if ( ( wbIndividualFieldsComposite.getVisible() && !Const.isEmpty( hostname ) ) || ( wbConnectionStringComposite.getVisible() && !Const.isEmpty( connectionString ) ) ) {
+    try ( MongoClient mc = getInfo( new MongoDbInputMeta() ).getMongoClient( transMeta ) ) {
 
-      MongoDbInputMeta meta = new MongoDbInputMeta();
-      getInfo( meta );
-      try {
-        MongoClientWrapper wrapper = MongoWrapperUtil.createMongoClientWrapper( meta, transMeta, log );
-        List<String> dbNames = new ArrayList<String>();
-        try {
-          dbNames = wrapper.getDatabaseNames();
-        } finally {
-          wrapper.dispose();
-        }
+      //Clears the collectionCache
+      collectionCache.clear();
+      mc.listDatabaseNames().forEach( db -> {
+        collectionCache.put( db,
+          StreamSupport.stream( mc.getDatabase( db ).listCollectionNames().spliterator(), false )
+              .collect( Collectors.toList() ) );
+      } );
+      updateDbAndCollectionCombos( true );
 
-        for ( String s : dbNames ) {
-          wDbName.add( s );
-        }
-      } catch ( Exception e ) {
-        logError( BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.UnableToConnect" ), e ); //$NON-NLS-1$
-        new ErrorDialog( shell, BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage." + "UnableToConnect" ),
-                //$NON-NLS-1$ //$NON-NLS-2$
-                BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.UnableToConnect" ), e ); //$NON-NLS-1$
+      if ( !showSuccessMessage ) {
+        return true;
       }
-    } else {
-      // popup some feedback
-      String errorString = "";
-      if ( ( wbIndividualFieldsComposite.getVisible() && Const.isEmpty( hostname ) ) ) {
-        errorString += "host name(s)";
-      } else {
-        errorString += " Connection String";
-      }
-      ShowMessageDialog
-              smd =
-              new ShowMessageDialog( shell, SWT.ICON_WARNING | SWT.OK,
-                      BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.MissingConnectionDetails.Title" ),
-                      BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.MissingConnectionDetails",
-                              errorString ) ); //$NON-NLS-1$
+
+      ShowMessageDialog smd =
+          new ShowMessageDialog( shell, SWT.OK,
+              BaseMessages.getString( PKG, "MongoDbInputDialog.SuccessMessage.SuccessConnectionDetails.Title" ),
+              BaseMessages.getString( PKG, "MongoDbInputDialog.SuccessMessage.SuccessConnectionDetails" ) );
       smd.open();
-    }
 
-    if ( !Const.isEmpty( current ) ) {
-      wDbName.setText( current );
+      return true;
+      
+    } catch ( Exception e ) {
+      logError( BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.UnableToConnect" ), e ); //$NON-NLS-1$
+      new ErrorDialog( shell, BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.UnableToConnect" ),
+          BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.UnableToConnect" ), e ); //$NON-NLS-1$
     }
-  }
-  //Test connection using string provided
-  private void testConnection() {
-    String connectionString = Encr.decryptPasswordOptionallyEncrypted( transMeta.environmentSubstitute( wConnString.getText() ) );
-    if ( !Const.isEmpty( connectionString ) ) {
-      MongoDbInputMeta meta = new MongoDbInputMeta();
-      getInfo( meta );
-      try {
-        MongoClientWrapper wrapper = MongoWrapperUtil.createMongoClientWrapper( meta, transMeta, log );
-        try {
-          wrapper.getDatabaseNames();
-        } finally {
-          wrapper.dispose();
-        }
-        ShowMessageDialog
-                smd =
-                new ShowMessageDialog( shell,  SWT.OK,
-                        BaseMessages.getString( PKG, "MongoDbInputDialog.SuccessMessage.SuccessConnectionDetails.Title" ),
-                        BaseMessages.getString( PKG, "MongoDbInputDialog.SuccessMessage.SuccessConnectionDetails",
-                                "Connection String" ) ); //$NON-NLS-1$
-        smd.open();
-      } catch ( Exception e ) {
-        logError( BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.UnableToConnect" ), e ); //$NON-NLS-1$
-        new ErrorDialog( shell, BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage." + "UnableToConnect" ),
-                //$NON-NLS-1$ //$NON-NLS-2$
-                BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.UnableToConnect" ), e ); //$NON-NLS-1$
-      }
-    } else {
-      ShowMessageDialog
-              smd =
-              new ShowMessageDialog( shell,  SWT.ICON_WARNING | SWT.OK,
-                      BaseMessages.getString( PKG, "MongoDbInputDialog.WarningMessage.MissingConnectionDetails.Title" ),
-                      BaseMessages.getString( PKG, "MongoDbInputDialog.WarningMessage.MissingConnectionDetails",
-                              "Connection String" ) ); //$NON-NLS-1$
-      smd.open();
-    }
+    
+    return false;
   }
 
-
-  private void setupCollectionNamesForDB() {
-    final String hostname = transMeta.environmentSubstitute( wHostname.getText() );
-    final String dB = transMeta.environmentSubstitute( wDbName.getText() );
-    String current = wCollection.getText();
+  private void updateDbAndCollectionCombos( boolean updateDbs ) {
+    
+    String currentDb = wDbName.getText();
+    if( updateDbs ) {
+      wDbName.removeAll();
+      collectionCache.keySet().forEach( s -> wDbName.add( s ) );
+      if( !Utils.isEmpty( currentDb ) ) {
+        wDbName.setText( currentDb );
+      }
+    }
+    
+    currentDb = transMeta.environmentSubstitute( currentDb );
+    String currentCollection = wCollection.getText();
     wCollection.removeAll();
-    String connectionString = Encr.decryptPasswordOptionallyEncrypted( transMeta.environmentSubstitute( wConnString.getText() ) );
-    if ( ( wbIndividualFieldsComposite.getVisible() && !Const.isEmpty( hostname ) )
-            || ( wbConnectionStringComposite.getVisible( ) && !Const.isEmpty( connectionString ) ) && !Const.isEmpty( dB ) ) {
-
-      final MongoDbInputMeta meta = new MongoDbInputMeta();
-      getInfo( meta );
-      try {
-        MongoClientWrapper wrapper = MongoWrapperUtil.createMongoClientWrapper( meta, transMeta, log );
-        Set<String> collections = new HashSet<String>();
-        try {
-          collections = wrapper.getCollectionsNames( dB );
-        } finally {
-          wrapper.dispose();
-        }
-
-        for ( String c : collections ) {
-          wCollection.add( c );
-        }
-      } catch ( Exception e ) {
-        logError( BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.UnableToConnect" ), e ); //$NON-NLS-1$
-        new ErrorDialog( shell, BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage." + "UnableToConnect" ),
-                //$NON-NLS-1$ //$NON-NLS-2$
-                BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.UnableToConnect" ), e ); //$NON-NLS-1$
-      }
-    } else {
-      // popup some feedback
-
-      String missingConnDetails = "";
-      if ( wbIndividualFieldsComposite.getVisible() && Const.isEmpty( hostname ) ) {
-        if ( Const.isEmpty( hostname ) ) {
-          missingConnDetails += "host name(s)";
-        }
-
-      } else if ( wbConnectionStringComposite.getVisible() && Const.isEmpty( connectionString ) ) {
-        missingConnDetails += " Connection string";
-      } else if ( Const.isEmpty( dB ) ) {
-        missingConnDetails += " database";
-      }
-      ShowMessageDialog
-              smd =
-              new ShowMessageDialog( shell, SWT.ICON_WARNING | SWT.OK,
-                      BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.MissingConnectionDetails.Title" ),
-                      BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.MissingConnectionDetails",
-                              missingConnDetails ) ); //$NON-NLS-1$
-      smd.open();
+    List<String> collections = collectionCache.get( currentDb );
+    if( collections != null ) {
+      collections.forEach( s -> wCollection.add( s ) );
     }
-
-    if ( !Const.isEmpty( current ) ) {
-      wCollection.setText( current );
+    if( !Utils.isEmpty( currentCollection ) ) {
+      wCollection.setText( currentCollection );
     }
+    
   }
+  
 
   private void setupTagSetComboValues() {
+    /*
     String hostname = transMeta.environmentSubstitute( wHostname.getText() );
 
     if ( !Const.isEmpty( hostname ) ) {
@@ -1685,7 +1594,9 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
                               "host name(s)" ) ); //$NON-NLS-1$
       smd.open();
     }
+    */
   }
+  
   /* Only referenced in commented code, commenting out also
   private void deleteSelectedFromView() {
     if (m_tagsView.nrNonEmpty() > 0 && m_tagsView.getSelectionIndex() >= 0) {
@@ -1740,6 +1651,7 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
   }*/
 
   private void testUserSpecifiedTagSetsAgainstReplicaSet() {
+    /*
     if ( m_tagsView.nrNonEmpty() > 0 ) {
       List<DBObject> tagSets = new ArrayList<DBObject>();
 
@@ -1852,9 +1764,11 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
                       BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.NoTagSetsDefined" ) ); //$NON-NLS-1$
       smd.open();
     }
+    */
   }
 
   private void concatenateTags() {
+    /*
     int[] selectedTags = this.m_tagsView.getSelectionIndices();
     String concatenated = "";
 
@@ -1867,12 +1781,13 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     }
     TableItem item = new TableItem( m_tagsView.table, SWT.NONE );
     item.setText( 1, concatenated );
-
+    */
   }
 
 
   public static void discoverFields( final MongoDbInputMeta meta, final VariableSpace vars, final int docsToSample,
                                      final MongoDbInputDialog mongoDialog ) throws KettleException {
+    /*
     MongoProperties.Builder propertiesBuilder = MongoWrapperUtil.createPropertiesBuilder( meta, vars );
     String db = vars.environmentSubstitute( meta.getDbName() );
     String collection = vars.environmentSubstitute( meta.getCollection() );
@@ -1906,11 +1821,12 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     } catch ( KettleException e ) {
       throw new KettleException( "Unable to discover fields from MongoDB", e );
     }
+    */
   }
 
   public static boolean discoverFields( final MongoDbInputMeta meta, final VariableSpace vars, final int docsToSample )
           throws KettleException {
-
+    /*
     MongoProperties.Builder propertiesBuilder = MongoWrapperUtil.createPropertiesBuilder( meta, vars );
     try {
       String db = vars.environmentSubstitute( meta.getDbName() );
@@ -1938,6 +1854,7 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
         throw new KettleException( "Unable to discover fields from MongoDB", e );
       }
     }
+    */
     return false;
   }
 

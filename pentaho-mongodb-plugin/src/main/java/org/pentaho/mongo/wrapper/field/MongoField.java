@@ -15,17 +15,18 @@ package org.pentaho.mongo.wrapper.field;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import org.bson.BsonUndefined;
 import org.bson.types.Binary;
-import org.pentaho.di.core.Const;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.injection.Injection;
-import org.pentaho.di.core.row.ValueMeta;
 import org.pentaho.di.core.row.ValueMetaInterface;
 import org.pentaho.di.core.row.value.ValueMetaFactory;
+import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputData;
@@ -108,7 +109,7 @@ public class MongoField implements Comparable<MongoField> {
    *           if a problem occurs
    */
   public void init( int outputIndex ) throws KettleException {
-    if ( Const.isEmpty( m_fieldPath ) ) {
+    if ( Utils.isEmpty( m_fieldPath ) ) {
       throw new KettleException( BaseMessages.getString( PKG, "MongoDbOutput.Messages.MongoField.Error.NoPathSet" ) ); //$NON-NLS-1$
     }
 
@@ -118,11 +119,7 @@ public class MongoField implements Comparable<MongoField> {
 
     String fieldPath = MongoDbInputData.cleansePath( m_fieldPath );
 
-    String[] temp = fieldPath.split( "\\." ); //$NON-NLS-1$
-    m_pathParts = new ArrayList<String>();
-    for ( String part : temp ) {
-      m_pathParts.add( part );
-    }
+    m_pathParts = Arrays.stream( fieldPath.split( "\\." ) ).collect( Collectors.toList() );
 
     if ( m_pathParts.get( 0 ).equals( "$" ) ) { //$NON-NLS-1$
       m_pathParts.remove( 0 ); // root record indicator
@@ -134,7 +131,7 @@ public class MongoField implements Comparable<MongoField> {
     }
 
     m_tempParts = new ArrayList<String>();
-    m_tempValueMeta = ValueMetaFactory.createValueMeta( ValueMeta.getType( m_kettleType ) );
+    m_tempValueMeta = ValueMetaFactory.createValueMeta( ValueMetaInterface.getTypeCode( m_kettleType ) );
     m_outputIndex = outputIndex;
   }
 
@@ -193,11 +190,12 @@ public class MongoField implements Comparable<MongoField> {
         return m_tempValueMeta.getBinary( fieldValue );
       case ValueMetaInterface.TYPE_BOOLEAN:
         if ( fieldValue instanceof Number ) {
-          fieldValue = new Boolean( ( (Number) fieldValue ).intValue() != 0 );
+          
+          fieldValue = Boolean.valueOf( ( (Number) fieldValue ).intValue() != 0 );
         } else if ( fieldValue instanceof Date ) {
-          fieldValue = new Boolean( ( (Date) fieldValue ).getTime() != 0 );
+          fieldValue = Boolean.valueOf( ( (Date) fieldValue ).getTime() != 0 );
         } else if ( !( fieldValue instanceof Boolean ) ) {
-          fieldValue = new Boolean( fieldValue.toString().equalsIgnoreCase( "Y" ) //$NON-NLS-1$
+          fieldValue = Boolean.valueOf( fieldValue.toString().equalsIgnoreCase( "Y" ) //$NON-NLS-1$
               || fieldValue.toString().equalsIgnoreCase( "T" ) //$NON-NLS-1$
               || fieldValue.toString().equalsIgnoreCase( "1" ) ); //$NON-NLS-1$
         }
@@ -212,24 +210,24 @@ public class MongoField implements Comparable<MongoField> {
         return m_tempValueMeta.getDate( fieldValue );
       case ValueMetaInterface.TYPE_INTEGER:
         if ( fieldValue instanceof Number ) {
-          fieldValue = new Long( ( (Number) fieldValue ).intValue() );
+          fieldValue = Long.valueOf( ( (Number) fieldValue ).longValue() );
         } else if ( fieldValue instanceof Binary ) {
           byte[] b = ( (Binary) fieldValue ).getData();
           String s = new String( b );
-          fieldValue = new Long( s );
+          fieldValue = Long.valueOf( s );
         } else {
-          fieldValue = new Long( fieldValue.toString() );
+          fieldValue = Long.valueOf( fieldValue.toString() );
         }
         return m_tempValueMeta.getInteger( fieldValue );
       case ValueMetaInterface.TYPE_NUMBER:
         if ( fieldValue instanceof Number ) {
-          fieldValue = new Double( ( (Number) fieldValue ).doubleValue() );
+          fieldValue = Double.valueOf( ( (Number) fieldValue ).doubleValue() );
         } else if ( fieldValue instanceof Binary ) {
           byte[] b = ( (Binary) fieldValue ).getData();
           String s = new String( b );
-          fieldValue = new Double( s );
+          fieldValue = Double.valueOf( s );
         } else {
-          fieldValue = new Double( fieldValue.toString() );
+          fieldValue = Double.valueOf( fieldValue.toString() );
         }
         return m_tempValueMeta.getNumber( fieldValue );
       case ValueMetaInterface.TYPE_STRING:

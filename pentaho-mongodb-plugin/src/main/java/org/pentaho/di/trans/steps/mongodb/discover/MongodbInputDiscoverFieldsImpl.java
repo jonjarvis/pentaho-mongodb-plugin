@@ -10,17 +10,17 @@
  * Change Date: 2029-07-20
  ******************************************************************************/
 
-package org.pentaho.mongo.wrapper.field;
+package org.pentaho.di.trans.steps.mongodb.discover;
 
-import com.mongodb.AggregationOptions;
-import com.mongodb.BasicDBList;
-import com.mongodb.BasicDBObject;
-import com.mongodb.Cursor;
-import com.mongodb.DB;
-import com.mongodb.DBCollection;
-import com.mongodb.DBCursor;
-import com.mongodb.DBObject;
-import com.mongodb.util.JSON;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+import org.bson.BsonDocument;
 import org.bson.types.BSONTimestamp;
 import org.bson.types.Binary;
 import org.bson.types.Code;
@@ -32,31 +32,35 @@ import org.pentaho.di.core.Const;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.row.ValueMeta;
 import org.pentaho.di.core.row.ValueMetaInterface;
+import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.i18n.BaseMessages;
-import org.pentaho.di.trans.steps.mongodbinput.DiscoverFieldsCallback;
-import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputDiscoverFields;
 import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputMeta;
+import org.pentaho.mongo.wrapper.field.MongoField;
+/*
 import org.pentaho.mongo.MongoDbException;
 import org.pentaho.mongo.MongoProperties;
 import org.pentaho.mongo.wrapper.MongoClientWrapper;
 import org.pentaho.mongo.wrapper.MongoDBAction;
 import org.pentaho.mongo.wrapper.MongoWrapperUtil;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-
+import com.mongodb.AggregationOptions;
+import com.mongodb.BasicDBList;
+import com.mongodb.BasicDBObject;
+import com.mongodb.DB;
+import com.mongodb.DBCollection;
+import com.mongodb.DBCursor;
+import com.mongodb.DBObject;
+import com.mongodb.util.JSON;
+*/
 /**
  * Created by bryan on 8/7/14.
  */
 public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverFields {
   private static final Class<?> PKG = MongodbInputDiscoverFieldsImpl.class;
 
+  /*
+  
   public List<MongoField> discoverFields( final MongoProperties.Builder properties, final String db, final String collection,
                                          final String query, final String fields,
                                          final boolean isPipeline, final int docsToSample, MongoDbInputMeta step, VariableSpace vars )
@@ -332,7 +336,7 @@ public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
           }
           newField.m_fieldName = finalPath;
           newField.m_fieldPath = finalName;
-          newField.m_kettleType = ValueMeta.getTypeDesc( kettleType );
+          newField.m_kettleType = ValueMetaInterface.getTypeDescription( kettleType );
           newField.m_percentageOfSample = 1;
 
           lookup.put( finalPath, newField );
@@ -486,8 +490,8 @@ public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
     }
 
     for ( String p : parts ) {
-      if ( !Const.isEmpty( p ) ) {
-        DBObject o = (DBObject) JSON.parse( p );
+      if ( !Utils.isEmpty( p ) ) {
+        DBObject o = (DBObject) BSON.parse( p );
         pipeline.add( o );
       }
     }
@@ -499,4 +503,7 @@ public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
 
     return pipeline;
   }
+  
+  */
+  
 }

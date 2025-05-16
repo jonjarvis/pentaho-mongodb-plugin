@@ -9,6 +9,7 @@ eclipse-bin/
 override.properties
 .settings/
 .classpath
+.project
 /dev-lib
 /pdi-null
 /pdi-bin

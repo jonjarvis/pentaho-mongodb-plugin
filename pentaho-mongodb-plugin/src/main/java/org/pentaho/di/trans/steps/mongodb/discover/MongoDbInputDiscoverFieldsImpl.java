@@ -2,7 +2,7 @@
  *
  * Pentaho
  *
- * Copyright (C) 2024 by Hitachi Vantara, LLC : http://www.pentaho.com
+ * Copyright (C) 2025 by Hitachi Vantara, LLC : http://www.pentaho.com
  *
  * Use of this software is governed by the Business Source License included
  * in the LICENSE.TXT file.
@@ -16,11 +16,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import org.bson.BsonDocument;
+import org.bson.Document;
 import org.bson.types.BSONTimestamp;
 import org.bson.types.Binary;
 import org.bson.types.Code;
@@ -28,148 +27,75 @@ import org.bson.types.MaxKey;
 import org.bson.types.MinKey;
 import org.bson.types.ObjectId;
 import org.bson.types.Symbol;
-import org.pentaho.di.core.Const;
 import org.pentaho.di.core.exception.KettleException;
-import org.pentaho.di.core.row.ValueMeta;
 import org.pentaho.di.core.row.ValueMetaInterface;
+import org.pentaho.di.core.row.value.ValueMetaFactory;
 import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputMeta;
 import org.pentaho.mongo.wrapper.field.MongoField;
-/*
-import org.pentaho.mongo.MongoDbException;
-import org.pentaho.mongo.MongoProperties;
-import org.pentaho.mongo.wrapper.MongoClientWrapper;
-import org.pentaho.mongo.wrapper.MongoDBAction;
-import org.pentaho.mongo.wrapper.MongoWrapperUtil;
 
-import com.mongodb.AggregationOptions;
 import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
-import com.mongodb.DB;
-import com.mongodb.DBCollection;
-import com.mongodb.DBCursor;
-import com.mongodb.DBObject;
-import com.mongodb.util.JSON;
-*/
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
+
+
 /**
  * Created by bryan on 8/7/14.
  */
-public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverFields {
-  private static final Class<?> PKG = MongodbInputDiscoverFieldsImpl.class;
+public class MongoDbInputDiscoverFieldsImpl implements MongoDbInputDiscoverFields {
+  private static final Class<?> PKG = MongoDbInputDiscoverFieldsImpl.class;
 
-  /*
-  
-  public List<MongoField> discoverFields( final MongoProperties.Builder properties, final String db, final String collection,
-                                         final String query, final String fields,
-                                         final boolean isPipeline, final int docsToSample, MongoDbInputMeta step, VariableSpace vars )
+  public List<MongoField> discoverFields( MongoDbInputMeta step, VariableSpace vars, int docsToSample )
     throws KettleException {
-    MongoClientWrapper clientWrapper = null;
-    try {
-      clientWrapper = MongoWrapperUtil.createMongoClientWrapper( step, vars, null );
-    } catch ( MongoDbException e ) {
-      throw new KettleException( e );
+
+    List<MongoField> discoveredFields = new ArrayList<MongoField>();
+    Map<String, MongoField> fieldLookup = new HashMap<String, MongoField>();
+
+    String dbName = vars.environmentSubstitute( step.getDbName() );
+    String collectionName = vars.environmentSubstitute( step.getCollection() );
+
+    if ( Utils.isEmpty( dbName ) ) {
+      throw new KettleException( BaseMessages.getString( PKG,
+        "MongoNoAuthWrapper.ErrorMessage.NoCollectionSpecified" ) ); //$NON-NLS-1$
     }
-    try {
-      return clientWrapper.perform( db, new MongoDBAction<List<MongoField>>() {
-        @Override
-        public List<MongoField> perform( DB db ) throws MongoDbException {
-          DBCursor cursor = null;
-          int numDocsToSample = docsToSample;
-          if ( numDocsToSample < 1 ) {
-            numDocsToSample = 100; // default
-          }
 
-          List<MongoField> discoveredFields = new ArrayList<MongoField>();
-          Map<String, MongoField> fieldLookup = new HashMap<String, MongoField>();
-          try {
-            if ( Const.isEmpty( collection ) ) {
-              throw new KettleException( BaseMessages.getString( PKG,
-                "MongoNoAuthWrapper.ErrorMessage.NoCollectionSpecified" ) ); //$NON-NLS-1$
-            }
-            DBCollection dbcollection = db.getCollection( collection );
+    try ( MongoClient client = step.getMongoClient( vars ) ) {
 
-            Iterator<DBObject> pipeSample = null;
+      MongoCollection<Document> collection = client.getDatabase( dbName ).getCollection( collectionName );
 
-            if ( isPipeline ) {
-              pipeSample = setUpPipelineSample( query, numDocsToSample, dbcollection );
-            } else {
-              if ( Const.isEmpty( query ) && Const.isEmpty( fields ) ) {
-                cursor = dbcollection.find().limit( numDocsToSample );
-              } else {
-                DBObject dbObject = (DBObject) JSON.parse( Const.isEmpty( query ) ? "{}" : query ); //$NON-NLS-1$
-                DBObject dbObject2 = (DBObject) JSON.parse( fields );
-                cursor = dbcollection.find( dbObject, dbObject2 ).limit( numDocsToSample );
-              }
-            }
+      try ( MongoCursor<Document> cursor =
+          step.getMongoCursor( collection, vars, docsToSample < 1 ? 100 : docsToSample, null, null ) ) {
 
-            int actualCount = 0;
-            while ( cursor != null ? cursor.hasNext() : pipeSample.hasNext() ) {
-              actualCount++;
-              DBObject nextDoc = ( cursor != null ? cursor.next() : pipeSample.next() );
-              docToFields( nextDoc, fieldLookup );
-            }
-
-            postProcessPaths( fieldLookup, discoveredFields, actualCount );
-
-            return discoveredFields;
-          } catch ( Exception e ) {
-            throw new MongoDbException( e );
-          } finally {
-            if ( cursor != null ) {
-              cursor.close();
-            }
-          }
+        int actualCount = 0;
+        while ( cursor.hasNext() ) {
+          actualCount++;
+          docToFields( cursor.next(), fieldLookup );
         }
-      } );
-    } catch ( Exception ex ) {
-      if ( ex instanceof KettleException ) {
-        throw (KettleException) ex;
-      } else {
-        throw new KettleException( BaseMessages.getString( PKG,
-          "MongoNoAuthWrapper.ErrorMessage.UnableToDiscoverFields" ), ex ); //$NON-NLS-1$
+        postProcessPaths( fieldLookup, discoveredFields, actualCount );
+
       }
-    } finally {
-      try {
-        clientWrapper.dispose();
-      } catch ( MongoDbException e ) {
-        //Ignore
-      }
+
     }
-  }
 
-  @Override
-  public void discoverFields( final MongoProperties.Builder properties, final String db, final String collection,
-                             final String query, final String fields,
-                             final boolean isPipeline, final int docsToSample, final MongoDbInputMeta step,
-                             final VariableSpace vars, final DiscoverFieldsCallback discoverFieldsCallback ) throws KettleException {
-    new Thread( new Runnable() {
-      @Override
-      public void run() {
-        try {
-          discoverFieldsCallback.notifyFields(
-              discoverFields( properties, db, collection, query, fields, isPipeline, docsToSample, step, vars ) );
-        } catch ( KettleException e ) {
-          discoverFieldsCallback.notifyException( e );
-        }
-      }
-    } ).run();
+    return discoveredFields;
   }
 
   protected static void postProcessPaths( Map<String, MongoField> fieldLookup, List<MongoField> discoveredFields,
-                                          int numDocsProcessed ) {
+      int numDocsProcessed ) {
     List<String> fieldKeys = new ArrayList<String>( fieldLookup.keySet() );
     Collections.sort( fieldKeys ); // sorting so name clash number assignments will be deterministic
     for ( String key : fieldKeys ) {
       MongoField m = fieldLookup.get( key );
-      m.m_occurenceFraction = "" + m.m_percentageOfSample + "/" //$NON-NLS-1$ //$NON-NLS-2$
-        + numDocsProcessed;
+      m.m_occurenceFraction = "" + m.m_percentageOfSample + "/" + numDocsProcessed;
+
       setMinArrayIndexes( m );
 
-      // set field names to terminal part and copy any min:max array index
-      // info
-      if ( m.m_fieldName.contains( "[" ) && m.m_fieldName.contains( ":" ) ) { //$NON-NLS-1$ //$NON-NLS-2$
+      // set field names to terminal part and copy any min:max array index info
+      if ( m.m_fieldName.contains( "[" ) && m.m_fieldName.contains( ":" ) ) {
         m.m_arrayIndexInfo = m.m_fieldName;
       }
       if ( m.m_fieldName.indexOf( '.' ) >= 0 ) {
@@ -179,7 +105,7 @@ public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
       if ( m.m_disparateTypes ) {
         // force type to string if we've seen this path more than once
         // with incompatible types
-        m.m_kettleType = ValueMeta.getTypeDesc( ValueMeta.TYPE_STRING );
+        m.m_kettleType = ValueMetaFactory.getValueMetaName( ValueMetaInterface.TYPE_STRING );
       }
       discoveredFields.add( m );
     }
@@ -191,7 +117,7 @@ public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
         Integer toUse = tempM.get( m.m_fieldName );
         String key = m.m_fieldName;
         m.m_fieldName = key + "_" + toUse; //$NON-NLS-1$
-        toUse = new Integer( toUse.intValue() + 1 );
+        toUse = Integer.valueOf( toUse.intValue() + 1 );
         tempM.put( key, toUse );
       } else {
         tempM.put( m.m_fieldName, 1 );
@@ -234,7 +160,7 @@ public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
         }
 
         String[] compParts = innerComp.split( ":" ); //$NON-NLS-1$
-        String replace = "[" + compParts[ 0 ] + "]"; //$NON-NLS-1$ //$NON-NLS-2$
+        String replace = "[" + compParts[0] + "]"; //$NON-NLS-1$ //$NON-NLS-2$
         updated.append( replace );
 
       }
@@ -248,15 +174,10 @@ public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
     m.m_fieldPath = updated.toString();
   }
 
-  protected static void docToFields( DBObject doc, Map<String, MongoField> lookup ) {
-    String root = "$"; //$NON-NLS-1$
-    String name = "$"; //$NON-NLS-1$
+  protected static void docToFields( Document doc, Map<String, MongoField> lookup ) {
 
-    if ( doc instanceof BasicDBObject ) {
-      processRecord( (BasicDBObject) doc, root, name, lookup );
-    } else if ( doc instanceof BasicDBList ) {
-      processList( (BasicDBList) doc, root, name, lookup );
-    }
+    processRecord( new BasicDBObject( doc ), "$", "$", lookup );
+
   }
 
   private static void processRecord( BasicDBObject rec, String path, String name, Map<String, MongoField> lookup ) {
@@ -265,10 +186,12 @@ public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
 
       if ( fieldValue instanceof BasicDBObject ) {
         processRecord( (BasicDBObject) fieldValue, path + "." + key, name + "." + //$NON-NLS-1$ //$NON-NLS-2$
-            key, lookup );
+            key,
+          lookup );
       } else if ( fieldValue instanceof BasicDBList ) {
         processList( (BasicDBList) fieldValue, path + "." + key, name + "." + //$NON-NLS-1$ //$NON-NLS-2$
-            key, lookup );
+            key,
+          lookup );
       } else {
         // some sort of primitive
         String finalPath = path + "." + key; //$NON-NLS-1$
@@ -283,7 +206,7 @@ public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
           }
           newField.m_fieldName = finalName;
           newField.m_fieldPath = finalPath;
-          newField.m_kettleType = ValueMeta.getTypeDesc( kettleType );
+          newField.m_kettleType = ValueMetaInterface.getTypeDescription( kettleType );
           newField.m_percentageOfSample = 1;
 
           lookup.put( finalPath, newField );
@@ -318,10 +241,12 @@ public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
 
       if ( element instanceof BasicDBObject ) {
         processRecord( (BasicDBObject) element, nonPrimitivePath, name + "[" + i + //$NON-NLS-1$
-            ":" + i + "]", lookup ); //$NON-NLS-1$ //$NON-NLS-2$
+            ":" + i + "]", //$NON-NLS-1$ //$NON-NLS-2$
+          lookup );
       } else if ( element instanceof BasicDBList ) {
         processList( (BasicDBList) element, nonPrimitivePath, name + "[" + i + //$NON-NLS-1$
-            ":" + i + "]", lookup ); //$NON-NLS-1$ //$NON-NLS-2$
+            ":" + i + "]", //$NON-NLS-1$ //$NON-NLS-2$
+          lookup );
       } else {
         // some sort of primitive
         String finalPath = primitivePath + "[" + i + "]"; //$NON-NLS-1$ //$NON-NLS-2$
@@ -366,7 +291,7 @@ public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
 
     if ( m.m_fieldName.split( "\\[" ).length != update.split( "\\[" ).length ) { //$NON-NLS-1$ //$NON-NLS-2$
       throw new IllegalArgumentException( "Field path and update path do not seem to contain " //$NON-NLS-1$
-        + "the same number of array parts!" ); //$NON-NLS-1$
+          + "the same number of array parts!" ); //$NON-NLS-1$
     }
 
     String temp = m.m_fieldName;
@@ -396,14 +321,14 @@ public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
 
         String[] origParts = innerPart.split( ":" ); //$NON-NLS-1$
         String[] compParts = innerComp.split( ":" ); //$NON-NLS-1$
-        int origMin = Integer.parseInt( origParts[ 0 ] );
-        int compMin = Integer.parseInt( compParts[ 0 ] );
-        int origMax = Integer.parseInt( origParts[ 1 ] );
-        int compMax = Integer.parseInt( compParts[ 1 ] );
+        int origMin = Integer.parseInt( origParts[0] );
+        int compMin = Integer.parseInt( compParts[0] );
+        int origMax = Integer.parseInt( origParts[1] );
+        int compMax = Integer.parseInt( compParts[1] );
 
         String newRange =
-          "[" + ( compMin < origMin ? compMin : origParts[ 0 ] ) + ":" + ( compMax > origMax ? compMax : origParts[ 1 ] )
-          + "]";
+            "[" + ( compMin < origMin ? compMin : origParts[0] ) + ":" + ( compMax > origMax ? compMax : origParts[1] )
+                + "]";
         updated.append( newRange );
       }
     }
@@ -422,7 +347,7 @@ public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
     }
 
     if ( fieldValue instanceof Symbol || fieldValue instanceof String || fieldValue instanceof Code
-          || fieldValue instanceof ObjectId || fieldValue instanceof MinKey || fieldValue instanceof MaxKey ) {
+        || fieldValue instanceof ObjectId || fieldValue instanceof MinKey || fieldValue instanceof MaxKey ) {
       return ValueMetaInterface.TYPE_STRING;
     } else if ( fieldValue instanceof Date ) {
       return ValueMetaInterface.TYPE_DATE;
@@ -443,67 +368,4 @@ public class MongodbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
     return ValueMetaInterface.TYPE_STRING;
   }
 
-  private static Iterator<DBObject> setUpPipelineSample( String query, int numDocsToSample, DBCollection collection )
-    throws KettleException {
-
-    query = query + ", {$limit : " + numDocsToSample + "}"; //$NON-NLS-1$ //$NON-NLS-2$
-    List<DBObject> samplePipe = jsonPipelineToDBObjectList( query );
-    Cursor cursor = collection.aggregate( samplePipe, AggregationOptions.builder().build() );
-    return cursor;
-  }
-
-
-  public static List<DBObject> jsonPipelineToDBObjectList( String jsonPipeline ) throws KettleException {
-    List<DBObject> pipeline = new ArrayList<DBObject>();
-    StringBuilder b = new StringBuilder( jsonPipeline.trim() );
-
-    // extract the parts of the pipeline
-    int bracketCount = -1;
-    List<String> parts = new ArrayList<String>();
-    int i = 0;
-    while ( i < b.length() ) {
-      if ( b.charAt( i ) == '{' ) {
-        if ( bracketCount == -1 ) {
-          // trim anything off before this point
-          b.delete( 0, i );
-          bracketCount = 0;
-          i = 0;
-        }
-        bracketCount++;
-      }
-      if ( b.charAt( i ) == '}' ) {
-        bracketCount--;
-      }
-      if ( bracketCount == 0 ) {
-        String part = b.substring( 0, i + 1 );
-        parts.add( part );
-        bracketCount = -1;
-
-        if ( i == b.length() - 1 ) {
-          break;
-        }
-        b.delete( 0, i + 1 );
-        i = 0;
-      }
-
-      i++;
-    }
-
-    for ( String p : parts ) {
-      if ( !Utils.isEmpty( p ) ) {
-        DBObject o = (DBObject) BSON.parse( p );
-        pipeline.add( o );
-      }
-    }
-
-    if ( pipeline.size() == 0 ) {
-      throw new KettleException( BaseMessages.getString( PKG,
-        "MongoNoAuthWrapper.ErrorMessage.UnableToParsePipelineOperators" ) ); //$NON-NLS-1$
-    }
-
-    return pipeline;
-  }
-  
-  */
-  
 }

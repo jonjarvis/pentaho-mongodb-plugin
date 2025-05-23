@@ -15,11 +15,9 @@ package org.pentaho.di.trans.steps.mongodbinput;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import org.bson.BsonDocument;
 import org.bson.Document;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.row.RowDataUtil;
@@ -28,13 +26,11 @@ import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.trans.step.BaseStepData;
 import org.pentaho.di.trans.step.StepDataInterface;
-import org.pentaho.di.trans.steps.mongodb.discover.MongoDbInputDiscoverFieldsHolder;
 import org.pentaho.mongo.wrapper.field.MongoArrayExpansion;
 import org.pentaho.mongo.wrapper.field.MongoField;
 
 import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
-import com.mongodb.DBObject;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
@@ -56,19 +52,6 @@ public class MongoDbInputData extends BaseStepData implements StepDataInterface 
   private List<MongoField> m_userFields;
   private MongoArrayExpansion m_expansionHandler;
   
-  /*
-  private static MongoDbInputDiscoverFieldsHolder mongoDbInputDiscoverFieldsHolder =
-      MongoDbInputDiscoverFieldsHolder.getInstance();
-
-  public static MongoDbInputDiscoverFieldsHolder getMongoDbInputDiscoverFieldsHolder() {
-    
-    return mongoDbInputDiscoverFieldsHolder;
-  }
-
-  protected static void setMongoDbInputDiscoverFieldsHolder( MongoDbInputDiscoverFieldsHolder holder ) {
-    mongoDbInputDiscoverFieldsHolder = holder;
-  }
-  */
 
   protected static MongoArrayExpansion checkFieldPaths( List<MongoField> normalFields, RowMetaInterface outputRowMeta )
     throws KettleException {

@@ -2,14 +2,13 @@
  *
  * Pentaho
  *
- * Copyright (C) 2024 by Hitachi Vantara, LLC : http://www.pentaho.com
+ * Copyright (C) 2025 by Hitachi Vantara, LLC : http://www.pentaho.com
  *
  * Use of this software is governed by the Business Source License included
  * in the LICENSE.TXT file.
  *
  * Change Date: 2029-07-20
  ******************************************************************************/
-
 
 package org.pentaho.di.trans.steps.mongodb.discover;
 
@@ -24,18 +23,7 @@ import java.util.List;
  * Created by brendan on 11/4/14.
  */
 public interface MongoDbInputDiscoverFields {
-  
-  /*
-  
-  List<MongoField> discoverFields( MongoProperties.Builder properties, String db, String collection,
-                                   String query, String fields,
-                                   boolean isPipeline, int docsToSample, MongoDbInputMeta step, VariableSpace vars )
-    throws KettleException;
 
-  void discoverFields( MongoProperties.Builder properties, String db, String collection, String query,
-                       String fields,
-                       boolean isPipeline, int docsToSample, MongoDbInputMeta step,
-                       VariableSpace vars, DiscoverFieldsCallback discoverFieldsCallback ) throws KettleException;
+  List<MongoField> discoverFields( MongoDbInputMeta step, VariableSpace vars, int docsToSample ) throws KettleException;
 
-  */
 }

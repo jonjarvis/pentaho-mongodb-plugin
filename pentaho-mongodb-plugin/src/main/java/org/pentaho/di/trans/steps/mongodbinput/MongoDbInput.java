@@ -13,13 +13,11 @@
 
 package org.pentaho.di.trans.steps.mongodbinput;
 
-import java.util.stream.Collectors;
+import java.util.function.Function;
 
-import org.bson.BsonArray;
-import org.bson.BsonDocument;
-import org.bson.BsonValue;
 import org.bson.Document;
 import org.pentaho.di.core.exception.KettleException;
+import org.pentaho.di.core.exception.KettleValueException;
 import org.pentaho.di.core.row.RowDataUtil;
 import org.pentaho.di.core.row.RowMeta;
 import org.pentaho.di.core.row.RowMetaInterface;
@@ -35,7 +33,6 @@ import org.pentaho.di.trans.step.StepMetaInterface;
 
 import com.mongodb.BasicDBObject;
 import com.mongodb.ServerAddress;
-import com.mongodb.client.FindIterable;
 
 public class MongoDbInput extends BaseStep implements StepInterface {
   private static final Class<?> PKG = MongoDbInputMeta.class; 
@@ -91,7 +88,7 @@ public class MongoDbInput extends BaseStep implements StepInterface {
         Document nextDoc = data.cursor.next();
         Object[] row = null;
 
-        if ( !meta.getQueryIsPipeline() && !m_serverDetermined ) {
+        if ( !m_serverDetermined ) {
           ServerAddress s = data.cursor.getServerAddress();
           if ( s != null ) {
             m_serverDetermined = true;
@@ -170,46 +167,28 @@ public class MongoDbInput extends BaseStep implements StepInterface {
       m_serverDetermined = false;
     }
 
-    String query = environmentSubstitute( meta.getJsonQuery() );
-    String fields = environmentSubstitute( meta.getFieldsName() );
+    Function<String, String> performRowSubstitution = null;
 
     // Executing for each row, perform substitutions
     if ( meta.getExecuteForEachIncomingRow() && m_currentInputRowDrivingQuery != null ) {
-      // do field value substitution
-      query = fieldSubstitute( query, getInputRowMeta(), m_currentInputRowDrivingQuery );
-      fields = fieldSubstitute( fields, getInputRowMeta(), m_currentInputRowDrivingQuery );
+      performRowSubstitution = s -> {
+        try {
+          return fieldSubstitute( s, getInputRowMeta(), m_currentInputRowDrivingQuery);
+        } catch( KettleValueException kve ) {
+          throw new RuntimeException( kve );
+        }
+      };
     }
-
-    logDetailed( BaseMessages.getString( PKG, "MongoDbInput.Message.ExecutingQuery", query ) );
-
-    if ( meta.getQueryIsPipeline() ) {
-
-      // pipeline aggregations require a query
-      if ( Utils.isEmpty( query ) ) {
-        throw new KettleException( BaseMessages
-            .getString( MongoDbInputMeta.PKG, "MongoDbInput.ErrorMessage.EmptyAggregationPipeline" ) );
-      }
-
-      data.cursor =
-          data.collection.aggregate( BsonArray.parse( query ).stream()
-              .map( BsonValue::asDocument )
-              .map( BsonDocument::toJson )
-              .map( Document::parse )
-              .collect( Collectors.toList() ) )
-              .allowDiskUse( meta.isAllowDiskUse() )
-              .cursor();
-
-    } else {
-
-      FindIterable<Document> findCommand = data.collection.find();
-      if ( !Utils.isEmpty( query ) ) {
-        findCommand = findCommand.filter( BasicDBObject.parse( query ) );
-      }
-      if ( !Utils.isEmpty( fields ) ) {
-        findCommand = findCommand.projection( BasicDBObject.parse( fields ) );
-      }
-      data.cursor = findCommand.iterator();
+    
+    try {
+      data.cursor = meta.getMongoCursor( data.collection, this, null, performRowSubstitution, performRowSubstitution );
+    } catch( KettleException e ) {
+      throw e;
+    } catch( Exception e2 ) {
+      throw new KettleException( e2 );
     }
+    
+    
   }
 
   @Override 

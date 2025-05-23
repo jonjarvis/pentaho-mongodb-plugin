@@ -13,9 +13,13 @@
 
 package org.pentaho.di.trans.steps.mongodb;
 
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
+import org.pentaho.di.core.Const;
 import org.pentaho.di.core.database.DatabaseMeta;
 import org.pentaho.di.core.encryption.Encr;
 import org.pentaho.di.core.exception.KettleException;
@@ -24,6 +28,7 @@ import org.pentaho.di.core.injection.Injection;
 import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.core.xml.XMLHandler;
+import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.repository.ObjectId;
 import org.pentaho.di.repository.Repository;
 import org.pentaho.di.trans.step.BaseStepMeta;
@@ -32,17 +37,22 @@ import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputMeta;
 import org.pentaho.metastore.api.IMetaStore;
 import org.w3c.dom.Node;
 
+import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoCredential;
+import com.mongodb.ServerAddress;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 
 public abstract class MongoDbMeta extends BaseStepMeta implements StepMetaInterface {
   protected static Class<?> PKG = MongoDbInputMeta.class; // for i18n purposes
 
+  public static final int DEFAULT_MONGODB_PORT = 27017;
+  
   @Injection( name = "HOSTNAME" )
-  private String hostname = "localhost"; //$NON-NLS-1$
+  private String hostname = "localhost";
 
   @Injection( name = "PORT" )
-  private String port = "27017"; //$NON-NLS-1$
+  private String port = Integer.toString( DEFAULT_MONGODB_PORT );
 
   @Injection( name = "DATABASE_NAME" )
   private String dbName;
@@ -574,6 +584,8 @@ public abstract class MongoDbMeta extends BaseStepMeta implements StepMetaInterf
     retval.append( "    " ).append( XMLHandler.addTagValue( "use_legacy_options", isUseLegacyOptions() ) );
     retval.append( "    " ).append( XMLHandler.addTagValue( "connection_string",
             Encr.encryptPasswordIfNotUsingVariables( getConnectionString() ) ) );
+    
+    
     retval.append( "    " ).append( XMLHandler.addTagValue( "hostname", getHostnames() ) ); //$NON-NLS-1$ //$NON-NLS-2$
     retval.append( "    " ).append( XMLHandler.addTagValue( "port", getPort() ) ); //$NON-NLS-1$ //$NON-NLS-2$
     retval.append( "    " ).append( XMLHandler.addTagValue( "use_all_replica_members", getUseAllReplicaSetMembers() ) ); //$NON-NLS-1$ //$NON-NLS-2$
@@ -602,9 +614,142 @@ public abstract class MongoDbMeta extends BaseStepMeta implements StepMetaInterf
   }
   
   
+  protected MongoClientSettings getMongoClientSettings( VariableSpace vs ) throws KettleException {
   
-  public MongoClient getMongoClient( VariableSpace vs ) {
-    return MongoClients.create( Encr.decryptPasswordOptionallyEncrypted( vs.environmentSubstitute( getConnectionString() ) ) );
+    MongoClientSettings.Builder builder = MongoClientSettings.builder();
+    
+    // Apply Host(s) & Port Settings --------------------------------------
+    String hostSub = vs.environmentSubstitute( getHostnames() );
+    if ( Utils.isEmpty( hostSub ) ) {
+      throw new KettleException( BaseMessages.getString( PKG, "MongoNoAuthWrapper.Message.Error.EmptyHostsString" ) );
+    }
+    
+    try {   
+      
+      int singlePort = getVariableInt( getPort(), vs, DEFAULT_MONGODB_PORT ).get();
+      
+      builder.applyToClusterSettings( b -> b.hosts(
+        Arrays.stream( hostSub.split( "," ) ).map( host -> {
+          String[] parts = host.split( ":" );
+          if ( parts.length > 2 ) {
+            throw new RuntimeException( BaseMessages.getString( PKG, "MongoDBMeta.Message.Error.MalformedHost", host ) );
+          }
+          int portToUse = singlePort;
+          if ( parts.length == 2 ) {
+            try {
+              portToUse = Integer.parseInt( parts[1].trim() );
+            } catch ( NumberFormatException nfe ) {
+              throw new RuntimeException(
+                  BaseMessages.getString( PKG, "MongoDBMeta.Message.Error.UnableToParsePortNumber", parts[1] ), nfe );
+            }
+          }
+          return new ServerAddress( parts[0].trim(), portToUse );
+        } ).collect( Collectors.toList() ) ) );
+    } catch( Exception e ) {
+      throw new KettleException( e );
+    }
+    
+    // Apply SSL Settings ----------------------------------------------------
+    
+    builder.applyToSslSettings( b -> b.enabled( isUseSSLSocketFactory() ) );
+    
+    // Apply Timeout Settings ------------------------------------------------
+
+    getVariableInt( getSocketTimeout(), vs, null )
+        .ifPresent( st -> builder.applyToSocketSettings( b -> b.readTimeout( st, TimeUnit.MILLISECONDS ) ) );
+    getVariableInt( getConnectTimeout(), vs, null )
+        .ifPresent( ct -> builder.applyToSocketSettings( b -> b.connectTimeout( ct, TimeUnit.MILLISECONDS ) ) );
+
+    // Apply Credentials -----------------------------------------------------
+    
+    String userName = vs.environmentSubstitute( this.getAuthenticationUser() );
+    if( !Utils.isEmpty( userName ) ) {
+      
+      if( getUseKerberosAuthentication() ) {
+        
+        builder.credential( MongoCredential.createGSSAPICredential( userName ) );
+        
+      } else {
+        
+        String authDb = Const.NVL( vs.environmentSubstitute( this.getAuthenticationDatabaseName() ), vs.environmentSubstitute( getDbName() ) );
+        String password = Encr.decryptPasswordOptionallyEncrypted( vs.environmentSubstitute( Const.NVL(getAuthenticationPassword(), "") ) );
+      
+        switch( MongoCredentialTypes.valueOfOrDefault( getAuthenticationMechanism(), MongoCredentialTypes.PLAIN ) ) {
+          case SCRAMSHA1:
+            builder.credential( MongoCredential.createScramSha1Credential( userName, authDb, password.toCharArray() ) );
+            break;
+          case SCRAMSHA256:
+            builder.credential( MongoCredential.createScramSha256Credential( userName, authDb, password.toCharArray() ) );
+            break;
+          case MONGODBCR:
+            builder.credential( MongoCredential.createCredential( userName, authDb, password.toCharArray() ) );
+            break;
+          case PLAIN:
+            builder.credential( MongoCredential.createPlainCredential( userName, authDb, password.toCharArray() ) );
+            break;
+          default:
+            break;
+        }
+      }
+    }
+    
+    return builder.build();
   }
+  
+
+  
+  private Optional<Integer> getVariableInt( String value, VariableSpace vs, Integer defaultValue ) {
+    try {
+      return Optional.ofNullable( Integer.parseInt( vs.environmentSubstitute( value ) ) );
+    } catch( Exception e ) {
+      return Optional.ofNullable( defaultValue );
+    }
+  }
+  
+  
+  public MongoClient getMongoClient( VariableSpace vs ) throws KettleException {
+    
+    if( isUseConnectionString() ) {
+      return MongoClients.create( Encr.decryptPasswordOptionallyEncrypted( vs.environmentSubstitute( getConnectionString() ) ) );
+    } else {
+      return MongoClients.create( getMongoClientSettings( vs ) );
+    }
+   
+  }
+  
+  public static enum MongoCredentialTypes {
+    SCRAMSHA1( "SCRAM-SHA-1" ),
+    SCRAMSHA256( "SCRAM-SHA256" ),
+    MONGODBCR( "MONGODB-CR"),
+    PLAIN( "PLAIN" );
+    
+    private final String authMechanismName;
+    
+    private MongoCredentialTypes( String mechanismName ) {
+      this.authMechanismName = mechanismName;
+    }
+    
+    public String getMechanismName() {
+      return authMechanismName;
+    }
+    
+    public static final MongoCredentialTypes valueOfOrDefault( String mechanismName, MongoCredentialTypes def ) {
+      
+      if( Utils.isEmpty( mechanismName ) ) {
+        return def;
+      }
+      
+      for( MongoCredentialTypes type : values() ) {
+        if( type.getMechanismName().equalsIgnoreCase( mechanismName ) ) {
+          return type;
+        }
+      }
+     
+      return def;
+    }
+    
+    
+  }
+  
   
 }

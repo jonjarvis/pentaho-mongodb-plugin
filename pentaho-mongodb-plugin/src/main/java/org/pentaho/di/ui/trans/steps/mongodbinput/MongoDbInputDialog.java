@@ -51,6 +51,7 @@ import org.pentaho.di.core.Const;
 import org.pentaho.di.core.encryption.Encr;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.row.ValueMeta;
+import org.pentaho.di.core.row.value.ValueMetaFactory;
 import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.i18n.BaseMessages;
@@ -59,6 +60,9 @@ import org.pentaho.di.trans.TransMeta;
 import org.pentaho.di.trans.TransPreviewFactory;
 import org.pentaho.di.trans.step.BaseStepMeta;
 import org.pentaho.di.trans.step.StepDialogInterface;
+import org.pentaho.di.trans.steps.mongodb.MongoDbMeta.MongoCredentialTypes;
+import org.pentaho.di.trans.steps.mongodb.discover.MongoDbInputDiscoverFields;
+import org.pentaho.di.trans.steps.mongodb.discover.MongoDbInputDiscoverFieldsImpl;
 import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputData;
 import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputMeta;
 import org.pentaho.di.ui.core.FormDataBuilder;
@@ -409,9 +413,11 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
         m_dbAuthMec.setToolTipText( m_dbAuthMec.getText()  );
       }
     } );
-    m_dbAuthMec.add( "SCRAM-SHA-1" );
-    m_dbAuthMec.add( "MONGODB-CR" );
-    m_dbAuthMec.add( "PLAIN" );
+    
+    for( MongoCredentialTypes mct : MongoCredentialTypes.values() ) {
+      m_dbAuthMec.add( mct.getMechanismName() );
+    }
+    
     fd = new FormData();
     fd.left = new FormAttachment( middle, 0 );
     fd.top = new FormAttachment( lastControl, margin );
@@ -963,10 +969,9 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     fd.bottom = new FormAttachment( 100, 0 );
     wGet.setLayoutData( fd );
     wGet.addSelectionListener( new SelectionAdapter() {
-      @Override public void widgetSelected( SelectionEvent e ) {
-        // populate table from schema
-        MongoDbInputMeta newMeta = (MongoDbInputMeta) input.clone();
-        getFields( newMeta );
+      @Override 
+      public void widgetSelected( SelectionEvent e ) {
+        getFields();
       }
     } );
 
@@ -990,7 +995,7 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
                             //$NON-NLS-1$
                             ColumnInfo.COLUMN_TYPE_TEXT, false ), };
 
-    colinf[2].setComboValues( ValueMeta.getTypes() );
+    colinf[2].setComboValues( ValueMetaFactory.getValueMetaNames() );
     colinf[4].setReadOnly( true );
     colinf[5].setReadOnly( true );
     colinf[6].setReadOnly( true );
@@ -1229,7 +1234,7 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
   }
 
   private void ok() {
-    if ( Const.isEmpty( wStepname.getText() ) ) {
+    if ( Utils.isEmpty( wStepname.getText() ) ) {
       return;
     }
 
@@ -1316,15 +1321,15 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
   }
 
   private void updateTableItem( TableItem tableItem, MongoField mongoField ) {
-    if ( !Const.isEmpty( mongoField.m_fieldName ) ) {
+    if ( !Utils.isEmpty( mongoField.m_fieldName ) ) {
       tableItem.setText( 1, mongoField.m_fieldName );
     }
 
-    if ( !Const.isEmpty( mongoField.m_fieldPath ) ) {
+    if ( !Utils.isEmpty( mongoField.m_fieldPath ) ) {
       tableItem.setText( 2, mongoField.m_fieldPath );
     }
 
-    if ( !Const.isEmpty( mongoField.m_kettleType ) ) {
+    if ( !Utils.isEmpty( mongoField.m_kettleType ) ) {
       tableItem.setText( 3, mongoField.m_kettleType );
     }
 
@@ -1332,11 +1337,11 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
       tableItem.setText( 4, MongoDbInputData.indexedValsList( mongoField.m_indexedVals ) );
     }
 
-    if ( !Const.isEmpty( mongoField.m_arrayIndexInfo ) ) {
+    if ( !Utils.isEmpty( mongoField.m_arrayIndexInfo ) ) {
       tableItem.setText( 5, mongoField.m_arrayIndexInfo );
     }
 
-    if ( !Const.isEmpty( mongoField.m_occurenceFraction ) ) {
+    if ( !Utils.isEmpty( mongoField.m_occurenceFraction ) ) {
       tableItem.setText( 6, mongoField.m_occurenceFraction );
     }
 
@@ -1368,11 +1373,17 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
             BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.ErrorDuringSampling" ), exception ); //$NON-NLS-1$
   }
 
-  private void getFields( MongoDbInputMeta meta ) {
+  private void getFields( ) {
+    
+    MongoDbInputMeta meta = getInfo( new MongoDbInputMeta() );
+    
     String connectionString = Encr.decryptPasswordOptionallyEncrypted( transMeta.environmentSubstitute( wConnString.getText() ) );
-    if ( ( wbIndividualFieldsComposite.getVisible() && StringUtils.isNotEmpty( wHostname.getText() ) )
-            || ( wbConnectionStringComposite.getVisible( ) && StringUtils.isNotEmpty( connectionString ) ) && StringUtils.isNotEmpty( wDbName.getText() ) &&
-            StringUtils.isNotEmpty( wCollection.getText() ) ) {
+    
+    if ( ( !meta.isUseConnectionString() && StringUtils.isNotEmpty( meta.getHostnames() ) )
+            || ( meta.isUseConnectionString() && StringUtils.isNotEmpty( connectionString ) ) 
+            && StringUtils.isNotEmpty( transMeta.environmentSubstitute( meta.getDbName() ) ) 
+            && StringUtils.isNotEmpty( transMeta.environmentSubstitute( meta.getCollection() ) ) ) {
+      
       EnterNumberDialog
               end =
               new EnterNumberDialog( shell, 100, BaseMessages.getString( PKG, "MongoDbInputDialog.SampleDocuments.Title" ),
@@ -1381,23 +1392,13 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
       int samples = end.open();
       if ( samples > 0 ) {
 
-        getInfo( meta );
-        // Turn off execute for each incoming row (if set).
-        // Query is still going to
-        // be stuffed if the user has specified field replacement (i.e.
-        // ?{...}) in the query string
-        boolean current = meta.getExecuteForEachIncomingRow();
-        meta.setExecuteForEachIncomingRow( false );
-
         if ( !checkForUnresolved( meta, BaseMessages.getString( PKG,
                 "MongoDbInputDialog.Warning.Message.MongoQueryContainsUnresolvedVarsFieldSubs.SamplingTitle" ) ) ) {
-          //$NON-NLS-1$
           return;
         }
 
         try {
-          discoverFields( meta, transMeta, samples, this );
-          meta.setExecuteForEachIncomingRow( current );
+          discoverFields( meta, transMeta, samples );
         } catch ( KettleException e ) {
           new ErrorDialog( shell, stepname,
                   BaseMessages.getString( PKG, "MongoDbInputDialog.ErrorMessage.ErrorDuringSampling" ), e ); //$NON-NLS-1$
@@ -1407,15 +1408,15 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
       // pop up an error dialog
 
       String missingConDetails = "";
-      if ( wbIndividualFieldsComposite.getVisible() && Const.isEmpty( wHostname.getText() ) ) {
+      if ( wbIndividualFieldsComposite.getVisible() && Utils.isEmpty( wHostname.getText() ) ) {
         missingConDetails += " host name(s)";
-      } else if ( wbConnectionStringComposite.getVisible() && Const.isEmpty( connectionString ) ) {
+      } else if ( wbConnectionStringComposite.getVisible() && Utils.isEmpty( connectionString ) ) {
         missingConDetails += " Connection string";
       }
-      if ( Const.isEmpty( wDbName.getText() ) ) {
+      if ( Utils.isEmpty( wDbName.getText() ) ) {
         missingConDetails += " database";
       }
-      if ( Const.isEmpty( wCollection.getText() ) ) {
+      if ( Utils.isEmpty( wCollection.getText() ) ) {
         missingConDetails += " collection";
       }
 
@@ -1785,78 +1786,27 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
   }
 
 
-  public static void discoverFields( final MongoDbInputMeta meta, final VariableSpace vars, final int docsToSample,
-                                     final MongoDbInputDialog mongoDialog ) throws KettleException {
-    /*
-    MongoProperties.Builder propertiesBuilder = MongoWrapperUtil.createPropertiesBuilder( meta, vars );
-    String db = vars.environmentSubstitute( meta.getDbName() );
-    String collection = vars.environmentSubstitute( meta.getCollection() );
-    String query = vars.environmentSubstitute( meta.getJsonQuery() );
-    String fields = vars.environmentSubstitute( meta.getFieldsName() );
-    int numDocsToSample = docsToSample;
-    if ( numDocsToSample < 1 ) {
-      numDocsToSample = 100; // default
-    }
-    try {
-      MongoDbInputData.getMongoDbInputDiscoverFieldsHolder().getMongoDbInputDiscoverFields()
-              .discoverFields( propertiesBuilder, db, collection, query, fields, meta.getQueryIsPipeline(), numDocsToSample,
-                      meta, vars, new DiscoverFieldsCallback() {
-                        @Override public void notifyFields( final List<MongoField> fields ) {
-                          if ( fields.size() > 0 ) {
-                            Spoon.getInstance().getDisplay().asyncExec( new Runnable() {
-                              @Override public void run() {
-                                if ( !mongoDialog.isTableDisposed() ) {
-                                  meta.setMongoFields( fields );
-                                  mongoDialog.updateFieldTableFields( meta.getMongoFields() );
-                                }
-                              }
-                            } );
-                          }
-                        }
+  public void discoverFields( final MongoDbInputMeta meta, final VariableSpace vars, final int docsToSample )
+    throws KettleException {
 
-                        @Override public void notifyException( Exception exception ) {
-                          mongoDialog.handleNotificationException( exception );
-                        }
-                      } );
-    } catch ( KettleException e ) {
-      throw new KettleException( "Unable to discover fields from MongoDB", e );
+    MongoDbInputDiscoverFields discoverer = new MongoDbInputDiscoverFieldsImpl();
+    
+    List<MongoField> fields = discoverer.discoverFields( meta, vars, docsToSample );
+
+    if ( fields.size() > 0 ) {
+      
+      getParent().getDisplay().asyncExec( new Runnable() {
+        @Override
+        public void run() {
+          if( !isTableDisposed() ) {
+            updateFieldTableFields( fields );
+          }
+        }
+      } );
     }
-    */
   }
 
-  public static boolean discoverFields( final MongoDbInputMeta meta, final VariableSpace vars, final int docsToSample )
-          throws KettleException {
-    /*
-    MongoProperties.Builder propertiesBuilder = MongoWrapperUtil.createPropertiesBuilder( meta, vars );
-    try {
-      String db = vars.environmentSubstitute( meta.getDbName() );
-      String collection = vars.environmentSubstitute( meta.getCollection() );
-      String query = vars.environmentSubstitute( meta.getJsonQuery() );
-      String fields = vars.environmentSubstitute( meta.getFieldsName() );
-      int numDocsToSample = docsToSample;
-      if ( numDocsToSample < 1 ) {
-        numDocsToSample = 100; // default
-      }
-      List<MongoField> discoveredFields =
-              MongoDbInputData.getMongoDbInputDiscoverFieldsHolder().getMongoDbInputDiscoverFields().discoverFields(
-                      propertiesBuilder, db, collection, query, fields, meta.getQueryIsPipeline(), numDocsToSample, meta, vars );
-
-      // return true if query resulted in documents being returned and fields
-      // getting extracted
-      if ( discoveredFields.size() > 0 ) {
-        meta.setMongoFields( discoveredFields );
-        return true;
-      }
-    } catch ( Exception e ) {
-      if ( e instanceof KettleException ) {
-        throw (KettleException) e;
-      } else {
-        throw new KettleException( "Unable to discover fields from MongoDB", e );
-      }
-    }
-    */
-    return false;
-  }
+  
 
   // Disable fields which are not relevant when connection string URI mechanism is used
   private void disableFieldsForConnectionString( boolean isVisible ) {

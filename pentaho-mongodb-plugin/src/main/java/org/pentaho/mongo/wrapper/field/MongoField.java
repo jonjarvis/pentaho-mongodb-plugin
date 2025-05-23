@@ -56,13 +56,11 @@ public class MongoField implements Comparable<MongoField> {
    * Temporary variable to hold the min:max array index info for fields determined when sampling documents for
    * paths/types
    */
-  @Injection( name = "FIELD_ARRAY_INDEX", group = "FIELDS" )
   public transient String m_arrayIndexInfo;
 
   /**
    * Temporary variable to hold the number of times this path was seen when sampling documents to determine paths/types.
    */
-  @Injection( name = "FIELD_PERCENTAGE", group = "FIELDS" )
   public transient int m_percentageOfSample = -1;
 
   /**
@@ -77,9 +75,9 @@ public class MongoField implements Comparable<MongoField> {
    * Temporary variable used to indicate that this path occurs multiple times over the sampled documents and that the
    * types differ. In this case we should default to Kettle type String as a catch-all
    */
-  @Injection( name = "FIELD_DISPARATE_TYPES", group = "FIELDS" )
   public transient boolean m_disparateTypes;
 
+  
   /** The index that this field is in the output row structure */
   public int m_outputIndex;
 

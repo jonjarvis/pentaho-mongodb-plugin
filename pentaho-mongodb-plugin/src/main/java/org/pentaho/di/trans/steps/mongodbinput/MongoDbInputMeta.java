@@ -15,11 +15,15 @@ package org.pentaho.di.trans.steps.mongodbinput;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
-import org.pentaho.di.core.CheckResultInterface;
+import org.bson.BsonArray;
+import org.bson.BsonDocument;
+import org.bson.BsonValue;
+import org.bson.Document;
 import org.pentaho.di.core.annotations.Step;
 import org.pentaho.di.core.database.DatabaseMeta;
-import org.pentaho.di.core.encryption.Encr;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.exception.KettlePluginException;
 import org.pentaho.di.core.exception.KettleStepException;
@@ -46,6 +50,12 @@ import org.pentaho.di.trans.steps.mongodb.MongoDbMeta;
 import org.pentaho.metastore.api.IMetaStore;
 import org.pentaho.mongo.wrapper.field.MongoField;
 import org.w3c.dom.Node;
+
+import com.mongodb.BasicDBObject;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
 
 /**
  * Created on 8-apr-2011
@@ -495,4 +505,67 @@ public class MongoDbInputMeta extends MongoDbMeta {
   public void setAllowDiskUse( boolean allowDiskUse ) {
     this.allowDiskUse = allowDiskUse;
   }
+  
+  public MongoCursor<Document> getMongoCursor( MongoCollection<Document> collection, VariableSpace vars, Integer limit,
+      Function<String, String> queryModifier, Function<String, String> fieldsProjectionModifier ) throws KettleException {
+    
+    String query = vars.environmentSubstitute( getJsonQuery() );
+    String fields = vars.environmentSubstitute( getFieldsName() );
+
+    // Executing for each row, perform substitutions
+    if ( queryModifier != null ) {
+      query = queryModifier.apply( query );
+    }
+    
+    if( fieldsProjectionModifier != null ) {
+      fields = fieldsProjectionModifier.apply( fields );
+    }
+
+    logDetailed( BaseMessages.getString( PKG, "MongoDbInput.Message.ExecutingQuery", query ) );
+
+    if ( getQueryIsPipeline() ) {
+
+      // pipeline aggregations require a query
+      if ( Utils.isEmpty( query ) ) {
+        throw new KettleException( BaseMessages
+            .getString( MongoDbInputMeta.PKG, "MongoDbInput.ErrorMessage.EmptyAggregationPipeline" ) );
+      }
+
+      //Make sure the query has array brackets at the front and end
+      query = query.trim();
+      if( !query.startsWith( "[" ) && !query.endsWith( "]" ) ) {
+        query = "[" + query + "]";
+      }
+      
+      BsonArray parsedQuery = BsonArray.parse( query );
+      
+      if( limit != null && limit > 0 ) {
+        parsedQuery.add( BsonDocument.parse( "{ $limit : " + limit + "}" ) );
+      }
+      
+      return collection.aggregate( parsedQuery.stream()
+              .map( BsonValue::asDocument )
+              .map( BsonDocument::toJson )
+              .map( Document::parse )
+              .collect( Collectors.toList() ) )
+              .allowDiskUse( isAllowDiskUse() )
+              .cursor();
+
+    } else {
+
+      FindIterable<Document> findCommand = collection.find();
+      if ( !Utils.isEmpty( query ) ) {
+        findCommand = findCommand.filter( BasicDBObject.parse( query ) );
+      }
+      if ( !Utils.isEmpty( fields ) ) {
+        findCommand = findCommand.projection( BasicDBObject.parse( fields ) );
+      }
+      if( limit != null && limit > 0 ) {
+        findCommand = findCommand.limit( limit );
+      }
+      
+      return findCommand.iterator();
+    }
+  }
+  
 }

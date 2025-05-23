@@ -26,7 +26,6 @@ import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.trans.step.BaseStepData;
 import org.pentaho.di.trans.step.StepDataInterface;
-import org.pentaho.mongo.wrapper.field.MongoArrayExpansion;
 import org.pentaho.mongo.wrapper.field.MongoField;
 
 import com.mongodb.BasicDBList;
@@ -50,10 +49,10 @@ public class MongoDbInputData extends BaseStepData implements StepDataInterface 
   protected MongoCursor<Document> cursor;
 
   private List<MongoField> m_userFields;
-  private MongoArrayExpansion m_expansionHandler;
+  private MongoDbArrayExpansion m_expansionHandler;
   
 
-  protected static MongoArrayExpansion checkFieldPaths( List<MongoField> normalFields, RowMetaInterface outputRowMeta )
+  protected static MongoDbArrayExpansion checkFieldPaths( List<MongoField> normalFields, RowMetaInterface outputRowMeta )
     throws KettleException {
 
     // here we check whether there are any full array expansions
@@ -122,7 +121,7 @@ public class MongoDbInputData extends BaseStepData implements StepDataInterface 
         subFields.add( subField );
       }
 
-      MongoArrayExpansion exp = new MongoArrayExpansion( subFields );
+      MongoDbArrayExpansion exp = new MongoDbArrayExpansion( subFields );
       exp.m_expansionPath = expansion;
       exp.m_outputRowMeta = outputRowMeta;
 

@@ -10,7 +10,7 @@
  * Change Date: 2029-07-20
  ******************************************************************************/
 
-package org.pentaho.di.trans.steps.mongodb.discover;
+package org.pentaho.di.trans.steps.mongodbinput.discover;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -73,7 +73,7 @@ public class MongoDbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
         int actualCount = 0;
         while ( cursor.hasNext() ) {
           actualCount++;
-          docToFields( cursor.next(), fieldLookup );
+          processRecord( new BasicDBObject( cursor.next() ), "$", "$", fieldLookup );
         }
         postProcessPaths( fieldLookup, discoveredFields, actualCount );
 
@@ -174,17 +174,15 @@ public class MongoDbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
     m.m_fieldPath = updated.toString();
   }
 
-  protected static void docToFields( Document doc, Map<String, MongoField> lookup ) {
-
-    processRecord( new BasicDBObject( doc ), "$", "$", lookup );
-
-  }
 
   private static void processRecord( BasicDBObject rec, String path, String name, Map<String, MongoField> lookup ) {
     for ( String key : rec.keySet() ) {
       Object fieldValue = rec.get( key );
 
-      if ( fieldValue instanceof BasicDBObject ) {
+      if ( fieldValue instanceof Document ) {
+        processRecord( new BasicDBObject( (Document) fieldValue ), path + "." + key, name + "." + key,
+          lookup );
+      } else if ( fieldValue instanceof BasicDBObject ) {
         processRecord( (BasicDBObject) fieldValue, path + "." + key, name + "." + //$NON-NLS-1$ //$NON-NLS-2$
             key,
           lookup );
@@ -239,7 +237,10 @@ public class MongoDbInputDiscoverFieldsImpl implements MongoDbInputDiscoverField
     for ( int i = 0; i < list.size(); i++ ) {
       Object element = list.get( i );
 
-      if ( element instanceof BasicDBObject ) {
+      if ( element instanceof Document ) {
+        processRecord( new BasicDBObject( (Document) element ), nonPrimitivePath, name + "[" + i + ":" + i + "]", 
+        lookup );
+      } else if ( element instanceof BasicDBObject ) {
         processRecord( (BasicDBObject) element, nonPrimitivePath, name + "[" + i + //$NON-NLS-1$
             ":" + i + "]", //$NON-NLS-1$ //$NON-NLS-2$
           lookup );

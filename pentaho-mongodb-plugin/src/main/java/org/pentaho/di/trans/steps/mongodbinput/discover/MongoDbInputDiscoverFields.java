@@ -10,7 +10,7 @@
  * Change Date: 2029-07-20
  ******************************************************************************/
 
-package org.pentaho.di.trans.steps.mongodb.discover;
+package org.pentaho.di.trans.steps.mongodbinput.discover;
 
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.variables.VariableSpace;

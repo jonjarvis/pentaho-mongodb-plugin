@@ -26,6 +26,7 @@ import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.CCombo;
 import org.eclipse.swt.custom.CTabFolder;
 import org.eclipse.swt.custom.CTabItem;
+import org.eclipse.swt.custom.StackLayout;
 import org.eclipse.swt.events.FocusEvent;
 import org.eclipse.swt.events.FocusListener;
 import org.eclipse.swt.events.ModifyEvent;
@@ -50,7 +51,6 @@ import org.eclipse.swt.widgets.Text;
 import org.pentaho.di.core.Const;
 import org.pentaho.di.core.encryption.Encr;
 import org.pentaho.di.core.exception.KettleException;
-import org.pentaho.di.core.row.ValueMeta;
 import org.pentaho.di.core.row.value.ValueMetaFactory;
 import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.core.variables.VariableSpace;
@@ -61,10 +61,10 @@ import org.pentaho.di.trans.TransPreviewFactory;
 import org.pentaho.di.trans.step.BaseStepMeta;
 import org.pentaho.di.trans.step.StepDialogInterface;
 import org.pentaho.di.trans.steps.mongodb.MongoDbMeta.MongoCredentialTypes;
-import org.pentaho.di.trans.steps.mongodb.discover.MongoDbInputDiscoverFields;
-import org.pentaho.di.trans.steps.mongodb.discover.MongoDbInputDiscoverFieldsImpl;
 import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputData;
 import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputMeta;
+import org.pentaho.di.trans.steps.mongodbinput.discover.MongoDbInputDiscoverFields;
+import org.pentaho.di.trans.steps.mongodbinput.discover.MongoDbInputDiscoverFieldsImpl;
 import org.pentaho.di.ui.core.FormDataBuilder;
 import org.pentaho.di.ui.core.PropsUI;
 import org.pentaho.di.ui.core.dialog.EnterNumberDialog;
@@ -135,6 +135,8 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
   private TextVar wConnString;
   private  Label tagSetsTitle;
   private final MongoDbInputMeta input;
+  
+  private Runnable updateOutputFields;
 
   //Using a tree map for case-insensitive equality
   private Map<String, List<String> > collectionCache = new TreeMap<>( String.CASE_INSENSITIVE_ORDER );
@@ -751,7 +753,7 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     lastControl = tagSetsTitle;
 
     m_tagsView =
-            new TableView( transMeta, wInputOptionsComp, SWT.FULL_SELECTION | SWT.MULTI, m_colInf, 1, lsMod, props );
+            new TableView( transMeta, wInputOptionsComp, SWT.FULL_SELECTION | SWT.MULTI | SWT.BORDER, m_colInf, 1, lsMod, props );
 
     fd = new FormData();
     fd.top = new FormAttachment( lastControl, margin * 2 );
@@ -914,7 +916,7 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     fieldsLayout.marginWidth = 3;
     fieldsLayout.marginHeight = 3;
     wFieldsComp.setLayout( fieldsLayout );
-
+    
     // Output as Json check box
     Label outputJLab = new Label( wFieldsComp, SWT.RIGHT );
     outputJLab.setText( BaseMessages.getString( PKG, "MongoDbInputDialog.OutputJson.Label" ) ); //$NON-NLS-1$
@@ -933,41 +935,46 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     m_outputAsJson.setLayoutData( fd );
     lastControl = m_outputAsJson;
     m_outputAsJson.addSelectionListener( new SelectionAdapter() {
-      @Override public void widgetSelected( SelectionEvent e ) {
+      @Override 
+      public void widgetSelected( SelectionEvent e ) {
         input.setChanged();
-        wGet.setEnabled( !m_outputAsJson.getSelection() );
-        wJsonField.setEnabled( m_outputAsJson.getSelection() );
+        updateOutputFields.run();
       }
     } );
 
+    Composite wFieldsOutputStackComp = new Composite( wFieldsComp, SWT.NONE );
+    StackLayout wFieldsOutputStackLayout = new StackLayout();
+    wFieldsOutputStackComp.setLayoutData( new FormDataBuilder().top( m_outputAsJson, margin ).bottom().left().right().result() );
+    props.setLook( wFieldsOutputStackComp );
+    wFieldsOutputStackComp.setLayout( wFieldsOutputStackLayout );
+        
+    Composite wJsonOutputComp = new Composite( wFieldsOutputStackComp, SWT.NONE );
+    wJsonOutputComp.setLayout( new FormLayout() );
+    props.setLook( wJsonOutputComp );
+    
+    
     // JsonField input ...
     //
-    Label wlJsonField = new Label( wFieldsComp, SWT.RIGHT );
+    Label wlJsonField = new Label( wJsonOutputComp, SWT.RIGHT );
     wlJsonField.setText( BaseMessages.getString( PKG, "MongoDbInputDialog.JsonField.Label" ) ); //$NON-NLS-1$
     props.setLook( wlJsonField );
-    FormData fdlJsonField = new FormData();
-    fdlJsonField.left = new FormAttachment( 0, 0 );
-    fdlJsonField.right = new FormAttachment( middle, -margin );
-    fdlJsonField.top = new FormAttachment( lastControl, margin );
-    wlJsonField.setLayoutData( fdlJsonField );
-    wJsonField = new TextVar( transMeta, wFieldsComp, SWT.SINGLE | SWT.LEFT | SWT.BORDER );
+    wlJsonField.setLayoutData( new FormDataBuilder().left().right( middle, -margin ).top().result() );
+    
+    wJsonField = new TextVar( transMeta, wJsonOutputComp, SWT.SINGLE | SWT.LEFT | SWT.BORDER );
     props.setLook( wJsonField );
     wJsonField.addModifyListener( lsMod );
-    FormData fdJsonField = new FormData();
-    fdJsonField.left = new FormAttachment( middle, 0 );
-    fdJsonField.top = new FormAttachment( lastControl, margin );
-    fdJsonField.right = new FormAttachment( 100, 0 );
-    wJsonField.setLayoutData( fdJsonField );
-    lastControl = wJsonField;
+    wJsonField.setLayoutData( new FormDataBuilder().left( middle, 0 ).right().top().result() );
+
+    
+    Composite wFieldsOutputComp = new Composite( wFieldsOutputStackComp, SWT.NONE );
+    wFieldsOutputComp.setLayout( new FormLayout() );
+    props.setLook( wFieldsOutputComp );
 
     // get fields button
-    wGet = new Button( wFieldsComp, SWT.PUSH );
+    wGet = new Button( wFieldsOutputComp, SWT.PUSH );
     wGet.setText( BaseMessages.getString( PKG, "MongoDbInputDialog.Button.GetFields" ) ); //$NON-NLS-1$
     props.setLook( wGet );
-    fd = new FormData();
-    fd.right = new FormAttachment( 100, 0 );
-    fd.bottom = new FormAttachment( 100, 0 );
-    wGet.setLayoutData( fd );
+    wGet.setLayoutData( new FormDataBuilder().right().bottom().result() );
     wGet.addSelectionListener( new SelectionAdapter() {
       @Override 
       public void widgetSelected( SelectionEvent e ) {
@@ -1000,15 +1007,21 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     colinf[5].setReadOnly( true );
     colinf[6].setReadOnly( true );
 
-    m_fieldsView = new TableView( transMeta, wFieldsComp, SWT.FULL_SELECTION | SWT.MULTI, colinf, 1, lsMod, props );
-
-    fd = new FormData();
-    fd.top = new FormAttachment( lastControl, margin * 2 );
-    fd.bottom = new FormAttachment( wGet, -margin * 2 );
-    fd.left = new FormAttachment( 0, 0 );
-    fd.right = new FormAttachment( 100, 0 );
-    m_fieldsView.setLayoutData( fd );
-
+    m_fieldsView = new TableView( transMeta, wFieldsOutputComp, SWT.FULL_SELECTION | SWT.MULTI | SWT.BORDER, colinf, 1, lsMod, props );
+    m_fieldsView.setLayoutData( new FormDataBuilder().top().bottom( wGet, -margin * 2 ).left().right().result() );
+    props.setLook( m_fieldsView );
+    
+    // Code that takes care of flipping between json output and fields output
+    updateOutputFields = () -> {
+      if( m_outputAsJson.getSelection() ) {
+        wFieldsOutputStackLayout.topControl = wJsonOutputComp;
+      } else {
+        wFieldsOutputStackLayout.topControl = wFieldsOutputComp;
+      }
+      wFieldsOutputStackComp.layout();
+    };
+    
+    
     fd = new FormData();
     fd.left = new FormAttachment( 0, 0 );
     fd.top = new FormAttachment( 0, 0 );
@@ -1017,6 +1030,9 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     wFieldsComp.setLayoutData( fd );
 
     wFieldsComp.layout();
+    
+    
+    
     m_wMongoFieldsTab.setControl( wFieldsComp );
 
     // --------------
@@ -1135,11 +1151,10 @@ public class MongoDbInputDialog extends BaseStepDialog implements StepDialogInte
     setFieldTableFields( meta.getMongoFields() );
     setTagsTableFields( meta.getReadPrefTagSets() );
 
-    wJsonField.setEnabled( meta.getOutputJson() );
-    wGet.setEnabled( !meta.getOutputJson() );
-
     updateQueryTitleInfo();
 
+    updateOutputFields.run();
+    
     wStepname.selectAll();
   }
 

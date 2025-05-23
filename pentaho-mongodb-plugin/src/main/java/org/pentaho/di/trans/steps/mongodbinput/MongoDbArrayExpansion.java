@@ -2,7 +2,7 @@
  *
  * Pentaho
  *
- * Copyright (C) 2024 by Hitachi Vantara, LLC : http://www.pentaho.com
+ * Copyright (C) 2025 by Hitachi Vantara, LLC : http://www.pentaho.com
  *
  * Use of this software is governed by the Business Source License included
  * in the LICENSE.TXT file.
@@ -11,7 +11,7 @@
  ******************************************************************************/
 
 
-package org.pentaho.mongo.wrapper.field;
+package org.pentaho.di.trans.steps.mongodbinput;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,13 +22,19 @@ import org.pentaho.di.core.row.RowMetaInterface;
 import org.pentaho.di.core.util.Utils;
 import org.pentaho.di.core.variables.VariableSpace;
 import org.pentaho.di.i18n.BaseMessages;
-import org.pentaho.di.trans.steps.mongodbinput.MongoDbInputData;
+import org.pentaho.mongo.wrapper.field.MongoField;
 
 import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
 
-public class MongoArrayExpansion {
-  protected static Class<?> PKG = MongoArrayExpansion.class; // for i18n purposes
+
+/**
+ * This class serves as a state machine used by the MongoDBInputData class
+ * to expand arrays across multiple output rows.
+ */
+
+public class MongoDbArrayExpansion {
+  protected static Class<?> PKG = MongoDbArrayExpansion.class; // for i18n purposes
 
   /**
    * The prefix of the full path that defines the expansion
@@ -45,7 +51,7 @@ public class MongoArrayExpansion {
 
   public RowMetaInterface m_outputRowMeta;
 
-  public MongoArrayExpansion( List<MongoField> subFields ) {
+  public MongoDbArrayExpansion( List<MongoField> subFields ) {
     m_subFields = subFields;
   }
 
